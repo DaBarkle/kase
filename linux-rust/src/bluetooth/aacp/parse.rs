@@ -248,6 +248,13 @@ pub fn peer_streaming_state(packet: &str) -> Option<bool> {
     }
 }
 
+/// Whether a Smart Routing message another device sent is its idle report (`idleTime`).
+/// An iPhone sends one when a call or a ring ends, but not the `Audio Source` that would
+/// say so. Its join announcement carries `idleTime` too, next to `newTipi`: not a report.
+pub fn peer_idle(packet: &str) -> bool {
+    packet.contains("idleTime") && !packet.contains("newTipi")
+}
+
 /// Reads `btAddress` and `btName` from a Smart Routing message another device sent, e.g.
 /// ("10:A2:D3:BF:3D:76", "iPhone").
 pub fn peer_identity(packet: &str) -> Option<(String, String)> {
@@ -354,6 +361,13 @@ mod tests {
         assert_eq!(peer_streaming_state(yes), Some(true));
         assert_eq!(peer_streaming_state(no), Some(false));
         assert_eq!(peer_streaming_state(blip), None);
+        assert!(peer_idle(
+            "v=\u{fffd}HidleTime1IbtAddressQ10:A2:D3:BF:3D:76FbtNameFiPhone"
+        ));
+        assert!(!peer_idle(
+            "HidleTimeGnewTipiIbtAddressQ10:A2:D3:BF:3D:76FbtNameFiPhone"
+        ));
+        assert!(!peer_idle(yes));
         assert_eq!(
             peer_identity(yes),
             Some(("10:A2:D3:BF:3D:76".into(), "iPhone".into()))

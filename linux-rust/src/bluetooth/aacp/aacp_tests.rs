@@ -315,6 +315,14 @@ async fn smart_routing_streaming_and_ownership_requests() {
     let blip = b"\x11\x00..hostStreamingStateCYESplayingAppGUnknown";
     m.receive_packet(&packet(blip)).await;
     none(&mut rx);
+
+    // The iPhone's idle report after a call or ring; its join announcement is not one.
+    let idle = b"\x11\x00..HidleTime\x01IbtAddressQ10:A2:D3:BF:3D:76";
+    m.receive_packet(&packet(idle)).await;
+    assert!(matches!(next(&mut rx), AACPEvent::PeerIdle));
+    let join = b"\x11\x00..HidleTime\x08GnewTipi\x01IbtAddress";
+    m.receive_packet(&packet(join)).await;
+    none(&mut rx);
 }
 
 #[tokio::test]

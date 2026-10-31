@@ -80,6 +80,7 @@ AirPods is one `route:` line in the log, with the reason.
 | Play a video on the iPhone, then stop it (nothing playing on the PC) | Back on the PC about 5 s after stopping |
 | Same with **Bring AirPods back to this PC** off | Stays on the iPhone until you press play on the PC |
 | Take a phone call while gaming | Stays on the phone for the whole call, then comes back |
+| Let a call or FaceTime ring on the iPhone and end without answering, while gaming or in Discord | Comes back to the PC within a few seconds of the ring ending; the log says `its call is over` |
 | Leave with the AirPods on the iPhone for hours; come home and open the case | Connected to the PC within a minute, sooner if you unlock the PC |
 | Let the iPhone take the AirPods, wait for them to reconnect to the PC, then press play on the PC | Back on the PC straight away; the log never says `skipping takeover` while you wear them |
 | Press Disconnect on the PC | Stays disconnected, also after restarting Kase, a reboot or suspend |

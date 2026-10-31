@@ -6,6 +6,16 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-11-01
+
+### Fixed
+- **The AirPods come back to the PC after a call or ring on the iPhone ends.** The iPhone
+  reports the call when it starts but often never says it ended; it only sends its idle
+  report. Kase kept waiting for "the call" and left game, Discord and other PC audio silent
+  until you pressed On in Kase (seen 2026-10-31 during a game). The idle report now ends the
+  call and counts as the iPhone going quiet, so the AirPods come back a few seconds later.
+  ([#48])
+
 ## [0.9.4] - 2026-10-31
 
 ### Fixed
@@ -524,3 +534,4 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#45]: https://github.com/DaBarkle/kase/pull/45
 [#46]: https://github.com/DaBarkle/kase/pull/46
 [#47]: https://github.com/DaBarkle/kase/pull/47
+[#48]: https://github.com/DaBarkle/kase/pull/48
