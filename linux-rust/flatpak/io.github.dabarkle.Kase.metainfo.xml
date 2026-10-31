@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.11.0" date="2026-11-01">
+      <description>
+        <p>AirPods 4 get a 3D case-open animation: the lid swings open and the pods rise out on the case card and the AirPods tab, smooth at any refresh rate.</p>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-11-01">
       <description>
         <p>Smoother, livelier visuals: battery numbers roll and rings fill one after another, charging rings come alive, tab pages slide, and a click on the tray icon opens a quick look with battery and noise control. A new Reduce motion setting follows your desktop.</p>

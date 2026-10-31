@@ -8,14 +8,15 @@
 use iced::widget::image::Handle;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, sync_channel};
+use std::sync::mpsc::{Receiver, TryRecvError, sync_channel};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 pub const FPS: f32 = 144.0;
 pub const COUNT: usize = 231;
-/// Frames decoded ahead of playback (each 440x440 RGBA is about 0.8 MB).
-const AHEAD: usize = 24;
+/// Frames decoded ahead of playback (each 440x440 RGBA is about 0.8 MB). A decode takes
+/// a few ms, so 8 frames (55 ms) is plenty of lead at 144 fps.
+const AHEAD: usize = 8;
 /// How long the frames stay decoded after the art is hidden.
 pub const LINGER: Duration = Duration::from_secs(5);
 
@@ -61,6 +62,8 @@ pub struct Player {
     shown: Option<(usize, Handle)>,
     want: Arc<AtomicUsize>,
     stop: Arc<AtomicBool>,
+    /// The decode thread is gone and every frame it sent has been shown.
+    done: bool,
 }
 
 impl Player {
@@ -99,6 +102,7 @@ impl Player {
             shown: None,
             want,
             stop,
+            done: false,
         })
     }
 
@@ -108,14 +112,23 @@ impl Player {
         let due = frame_at(now.saturating_duration_since(self.start), self.still);
         self.want.store(due, Ordering::Relaxed);
         loop {
-            match self.next.take().or_else(|| self.rx.try_recv().ok()) {
-                Some(f) if f.0 <= due => self.shown = Some(f),
-                Some(f) => {
-                    self.next = Some(f);
-                    break;
-                }
-                None => break,
+            let f = match self.next.take() {
+                Some(f) => f,
+                None => match self.rx.try_recv() {
+                    Ok(f) => f,
+                    // After the last frame, or a frame that failed to decode.
+                    Err(TryRecvError::Disconnected) => {
+                        self.done = true;
+                        break;
+                    }
+                    Err(TryRecvError::Empty) => break,
+                },
+            };
+            if f.0 > due {
+                self.next = Some(f);
+                break;
             }
+            self.shown = Some(f);
         }
     }
 
@@ -126,7 +139,7 @@ impl Player {
 
     /// Still moving: frames are needed at the display's rate.
     pub fn playing(&self) -> bool {
-        self.shown.as_ref().is_none_or(|(i, _)| *i < COUNT - 1)
+        !self.done
     }
 }
 
@@ -208,6 +221,33 @@ mod tests {
     fn only_airpods_4() {
         assert!(fits("airpods4") && fits("airpods4anc"));
         assert!(!fits("airpods3") && !fits("airpods_pro2") && !fits("airpods_max"));
+    }
+
+    #[test]
+    fn reduce_motion_shows_the_last_frame_then_stops() {
+        let Some(mut p) = Player::start(true) else {
+            return;
+        };
+        let until = Instant::now() + Duration::from_secs(5);
+        while p.playing() && Instant::now() < until {
+            p.advance(Instant::now());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!p.playing(), "never finished");
+        assert_eq!(p.shown.as_ref().map(|f| f.0), Some(COUNT - 1));
+    }
+
+    #[test]
+    fn plays_through_to_the_last_frame() {
+        let Some(mut p) = Player::start(false) else {
+            return;
+        };
+        let until = Instant::now() + Duration::from_secs(10);
+        while p.playing() && Instant::now() < until {
+            p.advance(Instant::now());
+            std::thread::sleep(Duration::from_millis(7));
+        }
+        assert_eq!(p.shown.as_ref().map(|f| f.0), Some(COUNT - 1));
     }
 
     #[test]
