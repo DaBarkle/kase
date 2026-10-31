@@ -489,9 +489,15 @@ impl Controller {
     /// shown: a resize lands a frame apart from the drawing and makes the island jump.
     pub fn extent(&self) -> (f32, f32) {
         let k = self.config.size.scale();
+        let art = if kase::ui::anim::dir().is_some() {
+            crate::island::ART_BLOCK
+        } else {
+            0.0
+        };
         (
             (ALERT_MAX_W.max(EXPANDED_W_BUDS) * 1.1 + 8.0) * k,
-            (EXPANDED_H * 1.1 + 6.0) * k,
+            // The case card can grow by the animation box.
+            ((EXPANDED_H + art) * 1.1 + 6.0) * k,
         )
     }
 }

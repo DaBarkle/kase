@@ -372,3 +372,21 @@ fn reset_keeps_a_waiting_glow() {
         "a glow asked for before mapping still plays"
     );
 }
+
+#[test]
+fn case_card_grows_for_the_animation_on_airpods_4_only() {
+    let mut s = buds();
+    s.kind = "airpods4".into();
+    s.in_case = true;
+    let art = if kase::ui::anim::dir().is_some() {
+        ART_BLOCK
+    } else {
+        0.0
+    };
+    assert_eq!(shape(&Content::Expanded, &s).1, EXPANDED_H + art);
+    s.kind = "airpods_pro2".into();
+    assert_eq!(shape(&Content::Expanded, &s).1, EXPANDED_H, "other models");
+    s.kind = "airpods4".into();
+    s.in_case = false;
+    assert_eq!(shape(&Content::Expanded, &s).1, EXPANDED_H, "lid closed");
+}

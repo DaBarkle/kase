@@ -6,6 +6,18 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-01
+
+### Added
+- **3D case-open animation for AirPods 4.** When AirPods 4 (with or without ANC) connect
+  from the open case, the case card grows to show the lid swinging open and both pods rising
+  out, rendered from a real AirPods 4 model and played at 144 fps by elapsed time, so it is
+  smooth at any refresh rate. The AirPods tab plays it above the name. Frames are decoded a
+  few at a time on a background thread (about 11 MB extra while it shows) and freed 5 s
+  after it goes. With **Reduce motion** only the last frame shows; other models keep the
+  card as it was; it is never shown over a fullscreen game. The model is "AirPods 4" by
+  Falah3D (CC BY 4.0), credited in the README and the About section. ([#51])
+
 ## [0.10.0] - 2026-11-01
 
 ### Added
@@ -575,3 +587,4 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#48]: https://github.com/DaBarkle/kase/pull/48
 [#49]: https://github.com/DaBarkle/kase/pull/49
 [#50]: https://github.com/DaBarkle/kase/pull/50
+[#51]: https://github.com/DaBarkle/kase/pull/51

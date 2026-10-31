@@ -118,9 +118,24 @@ impl App {
             let m = self.gauge_motion(i, g);
             rings = rings.push(container(widgets::gauge_view::<Message>(g, size, m)).width(Fill));
         }
+        // AirPods 4: the case-open animation between the status island and the name. The
+        // box keeps its size before the first frame is decoded, so nothing moves.
+        let art: Element<'a, Message> = if has_art(d) {
+            let size = Length::Fixed(ART);
+            match self.art.current() {
+                Some(h) => iced::widget::image(h.clone())
+                    .width(size)
+                    .height(size)
+                    .into(),
+                None => Space::new().width(size).height(size).into(),
+            }
+        } else {
+            Space::new().height(0).into()
+        };
         column![
             self.status_island(d),
             gap(18.0),
+            art,
             text(d.name.clone())
                 .size(26)
                 .font(style::INTER_SEMIBOLD)
@@ -256,4 +271,15 @@ impl App {
     }
 
     // -------------------------------------------------------------- Island
+}
+
+/// The animation box on the AirPods tab, in logical px (frames are 2x).
+const ART: f32 = 220.0;
+
+/// AirPods 4 get the case-open animation when its frames are installed.
+pub(super) fn has_art(d: &DeviceSnapshot) -> bool {
+    matches!(
+        d.model,
+        crate::core::models::ModelKind::AirPods4 | crate::core::models::ModelKind::AirPods4Anc
+    ) && crate::ui::anim::dir().is_some()
 }

@@ -14,9 +14,10 @@ use iced::{Color, Font, Point, Rectangle, Renderer, Size, Theme, Vector, border:
 
 use crate::glyphs::*;
 use crate::island::{
-    ALERT_ICON_X, ALERT_LEVEL_W, ALERT_TEXT_X, ALERT_TITLE_SIZE, ALERT_TRAIL_PAD, Alert, BREATHE,
-    CASE, COMPACT_ITEM, COMPACT_LEAD, Content, GlowKind, HEADPHONE, LEFT, Level, Motion, Parts,
-    REVEAL_DELAY, RIGHT, STAGGER, Tint, ease_out_back, reveal_at, shape, text_width,
+    ALERT_ICON_X, ALERT_LEVEL_W, ALERT_TEXT_X, ALERT_TITLE_SIZE, ALERT_TRAIL_PAD, ART, ART_BLOCK,
+    ART_TOP, Alert, BREATHE, CASE, COMPACT_ITEM, COMPACT_LEAD, Content, GlowKind, HEADPHONE, LEFT,
+    Level, Motion, Parts, REVEAL_DELAY, RIGHT, STAGGER, Tint, ease_out_back, has_art, reveal_at,
+    shape, text_width,
 };
 use crate::logic::Controller;
 use crate::purist;
@@ -83,6 +84,8 @@ fn anchored_in(position: OverlayPosition, surface: Size, size: Size, pad: f32) -
 pub struct Island<'a> {
     pub ctl: &'a Controller,
     pub now: Instant,
+    /// The case-open animation's current frame, while it plays or holds.
+    pub art: Option<&'a iced::widget::image::Handle>,
 }
 
 impl<Message> canvas::Program<Message> for Island<'_> {
@@ -121,6 +124,7 @@ struct Ctx<'a> {
     /// Purist style: bundled Inter, and no halo under text (the body is solid black,
     /// so a halo would only soften the glyph edges).
     purist: bool,
+    art: Option<&'a iced::widget::image::Handle>,
 }
 
 impl Ctx<'_> {
@@ -333,6 +337,7 @@ impl Island<'_> {
                         sheen: None,
                         island: (w, h),
                         purist,
+                        art: self.art,
                     };
                     paint_content(f, content, &ctx, position, &p, center, s * sc);
                 }
@@ -349,6 +354,7 @@ impl Island<'_> {
                             sheen: if purist { m.sheen_phase() } else { None },
                             island: (w, h),
                             purist,
+                            art: self.art,
                         };
                         if a < 0.97 && !m.reduced {
                             // Content comes in out of focus: two faint ghosts either side
@@ -727,6 +733,25 @@ fn paint_compact(f: &mut Frame, _w: f32, h: f32, ctx: &Ctx) {
 // --- Expanded --------------------------------------------------------------------
 
 fn paint_expanded(f: &mut Frame, w: f32, ctx: &Ctx) {
+    if !has_art(ctx.state) {
+        return paint_expanded_rows(f, w, ctx);
+    }
+    // The case-open animation above the usual card. The box keeps its size before the
+    // first frame is decoded, so nothing moves when it appears.
+    if let Some(h) = ctx.art {
+        let at = Rectangle::new(Point::new((w - ART) / 2.0, ART_TOP), Size::new(ART, ART));
+        f.draw_image(
+            at,
+            iced::advanced::image::Image::new(h.clone()).opacity(ctx.ink),
+        );
+    }
+    f.with_save(|f| {
+        f.translate(Vector::new(0.0, ART_BLOCK));
+        paint_expanded_rows(f, w, ctx);
+    });
+}
+
+fn paint_expanded_rows(f: &mut Frame, w: f32, ctx: &Ctx) {
     const INSET: f32 = 20.0;
     let header_y = 34.0;
     let glyph = white(0.92 * ctx.ink);
@@ -1270,6 +1295,7 @@ impl QuickView<'_> {
             sheen: None,
             island: (w, h),
             purist: true,
+            art: None,
         };
         // Header: mark, name, and what the AirPods are doing.
         let glyph = white(0.92 * ink);

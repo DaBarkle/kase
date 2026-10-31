@@ -25,6 +25,11 @@ pub const EXPANDED_W_BUDS: f32 = 344.0;
 pub const EXPANDED_W_HEADPHONE: f32 = 252.0;
 pub const EXPANDED_H: f32 = 112.0;
 pub const EXPANDED_R: f32 = 30.0;
+/// The case-open animation box at the top of the case card (AirPods 4).
+pub const ART: f32 = 150.0;
+pub const ART_TOP: f32 = 14.0;
+/// How much taller the card is with the animation.
+pub const ART_BLOCK: f32 = 156.0;
 pub const ALERT_H: f32 = 48.0;
 pub const ALERT_MIN_W: f32 = 150.0;
 pub const ALERT_MAX_W: f32 = 380.0;
@@ -315,6 +320,12 @@ impl Content {
     }
 }
 
+/// The case card shows the case-open animation: AirPods 4 with the lid open, when the
+/// frames are installed.
+pub fn has_art(state: &OverlayState) -> bool {
+    state.in_case && kase::ui::anim::fits(&state.kind) && kase::ui::anim::dir().is_some()
+}
+
 fn is_headphone(state: &OverlayState) -> bool {
     state.headphone.is_some()
 }
@@ -355,7 +366,7 @@ pub fn shape(content: &Content, state: &OverlayState) -> (f32, f32, f32) {
             } else {
                 EXPANDED_W_BUDS
             },
-            EXPANDED_H,
+            EXPANDED_H + if has_art(state) { ART_BLOCK } else { 0.0 },
             EXPANDED_R,
         ),
         Content::Alert(a) => {
