@@ -26,15 +26,17 @@ impl App {
                 .size(12)
                 .style(dim_text)
                 .width(Fill),
-                button(text("Show on screen").size(13).font(style::INTER_MEDIUM))
-                    .padding(Padding {
-                        top: 7.0,
-                        bottom: 7.0,
-                        left: 14.0,
-                        right: 14.0,
-                    })
-                    .style(style::secondary)
-                    .on_press_maybe(overlay_on.then_some(Message::PreviewOverlay)),
+                widgets::pressable(
+                    button(text("Show on screen").size(13).font(style::INTER_MEDIUM))
+                        .padding(Padding {
+                            top: 7.0,
+                            bottom: 7.0,
+                            left: 14.0,
+                            right: 14.0,
+                        })
+                        .style(style::secondary)
+                        .on_press_maybe(overlay_on.then_some(Message::PreviewOverlay))
+                ),
             ]
             .align_y(Center)
             .padding(Padding {
@@ -232,16 +234,17 @@ impl App {
             item = item.push(small(g.text.clone(), g.dimmed));
             line = line.push(item);
         }
-        button(line)
-            .padding(Padding {
-                top: 5.0,
-                bottom: 5.0,
-                left: 9.0,
-                right: 10.0,
-            })
-            .style(style::mini_island(enabled))
-            .on_press_maybe(enabled.then_some(Message::PreviewOverlay))
-            .into()
+        widgets::pressable(
+            button(line)
+                .padding(Padding {
+                    top: 5.0,
+                    bottom: 5.0,
+                    left: 9.0,
+                    right: 10.0,
+                })
+                .style(style::mini_island(enabled))
+                .on_press_maybe(enabled.then_some(Message::PreviewOverlay)),
+        )
     }
 
     // ------------------------------------------------------------ Settings

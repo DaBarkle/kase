@@ -109,6 +109,8 @@ pub struct OverlayConfig {
     pub size: OverlaySize,
     /// Pop the card for a few seconds when the AirPods connect from an open case.
     pub case_card: bool,
+    /// Reduce motion: the island fades instead of morphing, and nothing loops.
+    pub reduce_motion: bool,
 }
 
 impl Default for OverlayConfig {
@@ -123,6 +125,7 @@ impl Default for OverlayConfig {
             style: OverlayStyle::Purist,
             size: OverlaySize::Medium,
             case_card: true,
+            reduce_motion: false,
         }
     }
 }
@@ -147,6 +150,16 @@ impl ListeningMode {
             0x04 => Self::Adaptive,
             _ => return None,
         })
+    }
+
+    /// The AACP byte for this mode (see [`ListeningMode::from_byte`]).
+    pub fn byte(self) -> u8 {
+        match self {
+            Self::Off => 0x01,
+            Self::NoiseCancellation => 0x02,
+            Self::Transparency => 0x03,
+            Self::Adaptive => 0x04,
+        }
     }
 
     pub fn label(self) -> &'static str {
@@ -192,6 +205,9 @@ pub struct ComponentState {
     /// Optional age of a stale reading, in seconds, for a "2m ago" hint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_seen_secs: Option<u64>,
+    /// A pod taken out of the ear (ear detection says so). Its L / R label dims.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub out_of_ear: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
@@ -223,6 +239,9 @@ pub struct OverlayState {
     /// Connected with both pods put away in the case (the lid is open).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub in_case: bool,
+    /// The noise control modes these AirPods offer, in the window's order (tray quick look).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub modes: Vec<ListeningMode>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -247,7 +266,31 @@ pub enum OverlayCommand {
     Fullscreen {
         active: bool,
     },
+    /// The tray icon was clicked: open (or close) the quick look card in this corner.
+    QuickLook {
+        corner: OverlayPosition,
+    },
     Quit,
+}
+
+/// One line the overlay writes on its stdout: something the user did on the quick look.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum OverlayEvent {
+    OpenWindow,
+    SetListeningMode { mode: ListeningMode },
+}
+
+impl OverlayEvent {
+    pub fn parse_line(line: &str) -> Option<Self> {
+        serde_json::from_str(line.trim()).ok()
+    }
+
+    pub fn to_line(&self) -> String {
+        let mut s = serde_json::to_string(self).unwrap_or_else(|_| String::from("{}"));
+        s.push('\n');
+        s
+    }
 }
 
 impl OverlayCommand {
@@ -272,6 +315,34 @@ impl OverlayCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quick_look_lines_roundtrip() {
+        let cmd = OverlayCommand::QuickLook {
+            corner: OverlayPosition::BottomRight,
+        };
+        assert_eq!(
+            OverlayCommand::parse_line(&cmd.to_line()).unwrap(),
+            Some(cmd)
+        );
+        let ev = OverlayEvent::SetListeningMode {
+            mode: ListeningMode::Adaptive,
+        };
+        assert_eq!(
+            ev.to_line(),
+            "{\"type\":\"set_listening_mode\",\"mode\":\"adaptive\"}\n"
+        );
+        assert_eq!(OverlayEvent::parse_line(&ev.to_line()), Some(ev));
+        assert_eq!(OverlayEvent::parse_line("garbage"), None);
+        for m in [
+            ListeningMode::Off,
+            ListeningMode::NoiseCancellation,
+            ListeningMode::Transparency,
+            ListeningMode::Adaptive,
+        ] {
+            assert_eq!(ListeningMode::from_byte(m.byte()), Some(m));
+        }
+    }
 
     #[test]
     fn parses_architecture_examples() {

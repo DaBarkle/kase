@@ -399,6 +399,12 @@ fn full_mode_keeps_the_card_and_bumps_for_news() {
     assert_eq!(c.motion.caption.prev.as_deref(), Some("Connected"));
     let (_, t2) = run(&mut c, t1, 4000);
     assert_eq!(c.headline(t2), "Connected");
+    assert!(
+        c.is_animating(t2),
+        "the light on the charging ring still runs"
+    );
+    // ...for three trips round, then the card is still.
+    let (_, t2) = run(&mut c, t2, 2000);
     assert!(!c.is_animating(t2));
     assert_eq!(c.motion.pulse.value, 1.0);
 }
@@ -806,4 +812,24 @@ fn no_case_card_when_switched_off_or_over_a_game() {
     game.apply(OverlayCommand::Fullscreen { active: true }, t0);
     state(&mut game, in_case, t0);
     assert_eq!(game.target(t0), None);
+}
+
+#[test]
+fn reduce_motion_snaps_the_shape_and_lights_nothing() {
+    let t0 = Instant::now();
+    let mut c = Controller::new(OverlayConfig {
+        mode: OverlayMode::Always,
+        reduce_motion: true,
+        ..OverlayConfig::default()
+    });
+    let mut s = buds(80, 75, 40);
+    s.case = comp(40, true, true);
+    state(&mut c, s, t0);
+    c.tick(t0);
+    let (w, h, _) = c.motion.size();
+    assert_eq!((w, h), (EXPANDED_W_BUDS, EXPANDED_H), "no morph");
+    assert!(c.motion.glow.is_none());
+    assert_eq!(c.motion.sheen_phase(), None);
+    let (_, t1) = run(&mut c, t0, 1500);
+    assert!(!c.is_animating(t1), "only a short fade, then still");
 }

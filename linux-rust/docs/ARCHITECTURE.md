@@ -73,7 +73,22 @@ BLE adverts ──> le.rs ──BleBatteryReading──────────�
   "headphone":null, "listening_mode":"noise_cancellation", "mic":"desk" }}
 {"type":"show","reason":"connected"}
 {"type":"hide"}
+{"type":"quick_look","corner":"bottom-right"}
 {"type":"quit"}
+```
+
+`config` also carries `case_card` and `reduce_motion` (true: the island fades instead of
+morphing and nothing loops). A component may carry `"out_of_ear":true` (its L / R label
+dims), and `state` may carry `modes`, the noise control modes offered (for the quick look).
+
+`quick_look` opens (or closes) the tray quick look, a small card on its own layer surface
+(`src/bin/kase-overlay/quick.rs`) that, unlike the island, takes clicks. The overlay reports
+what is tapped there as JSON lines on its **stdout**, which the client reads
+(`overlay_client.rs`, `forward_events`):
+
+```json
+{"type":"open_window"}
+{"type":"set_listening_mode","mode":"adaptive"}
 ```
 
 `mode`: `auto` (Pop-up: open on changes, then fold away), `compact` (the slim island stays;

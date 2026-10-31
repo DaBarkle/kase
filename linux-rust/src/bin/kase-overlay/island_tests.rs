@@ -127,7 +127,7 @@ fn appearing_grows_from_the_seed_with_a_little_bounce() {
     assert_eq!(m.size(), (w, h, r));
     assert_eq!(m.alpha.value, 1.0);
     assert_eq!(m.incoming(), (1.0, 1.0));
-    assert_eq!(m.reveal(), 1.0);
+    assert_eq!(reveal_at(m.shown_age, 0), 1.0);
 }
 
 #[test]

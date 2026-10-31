@@ -24,6 +24,16 @@ pub enum Appearance {
     Dark,
 }
 
+/// Whether the window and the island animate: follow the desktop's own setting, or say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ReduceMotion {
+    #[default]
+    System,
+    On,
+    Off,
+}
+
 pub use crate::overlay_protocol::{OverlayMode, OverlayPosition, OverlaySize, OverlayStyle};
 
 /// Overlay corners/edges in picker order (top row, then bottom row).
@@ -63,6 +73,10 @@ pub struct Settings {
     /// Keep this PC in the AirPods' list next to an iPhone, so they don't drop it. Read by
     /// the device task (`stay_alongside`).
     pub stay_alongside: bool,
+    /// Morphs and slides become short fades, loops stop (window and island).
+    pub reduce_motion: ReduceMotion,
+    /// Left-click on the tray icon opens a small quick-look card instead of the window.
+    pub tray_quick_look: bool,
     /// Keys we don't manage, preserved verbatim.
     pub extra: Map<String, Value>,
 }
@@ -83,12 +97,14 @@ impl Default for Settings {
             return_to_pc: true,
             case_card: true,
             stay_alongside: true,
+            reduce_motion: ReduceMotion::System,
+            tray_quick_look: true,
             extra: Map::new(),
         }
     }
 }
 
-const KEYS: [&str; 13] = [
+const KEYS: [&str; 15] = [
     "overlay_glass",
     "overlay_style",
     "overlay_size",
@@ -102,6 +118,8 @@ const KEYS: [&str; 13] = [
     "return_to_pc",
     "case_card",
     "stay_alongside",
+    "reduce_motion",
+    "tray_quick_look",
 ];
 
 fn field<T: serde::de::DeserializeOwned>(map: &Map<String, Value>, key: &str, default: T) -> T {
@@ -126,7 +144,17 @@ impl Settings {
             style: self.overlay_style,
             size: self.overlay_size,
             case_card: self.case_card,
+            reduce_motion: self.reduces_motion(),
             ..Default::default()
+        }
+    }
+
+    /// Reduce motion as it applies now (the desktop's setting when following the system).
+    pub fn reduces_motion(&self) -> bool {
+        match self.reduce_motion {
+            ReduceMotion::System => crate::ui::motion::system_reduced(),
+            ReduceMotion::On => true,
+            ReduceMotion::Off => false,
         }
     }
 
@@ -154,6 +182,8 @@ impl Settings {
             return_to_pc: field(&map, "return_to_pc", d.return_to_pc),
             case_card: field(&map, "case_card", d.case_card),
             stay_alongside: field(&map, "stay_alongside", d.stay_alongside),
+            reduce_motion: field(&map, "reduce_motion", d.reduce_motion),
+            tray_quick_look: field(&map, "tray_quick_look", d.tray_quick_look),
             extra,
         }
     }
@@ -191,6 +221,11 @@ impl Settings {
         put("return_to_pc", Value::from(self.return_to_pc));
         put("case_card", Value::from(self.case_card));
         put("stay_alongside", Value::from(self.stay_alongside));
+        put(
+            "reduce_motion",
+            serde_json::to_value(self.reduce_motion).unwrap_or(Value::Null),
+        );
+        put("tray_quick_look", Value::from(self.tray_quick_look));
         serde_json::to_string_pretty(&Value::Object(map)).unwrap_or_else(|_| "{}".to_string())
     }
 }
@@ -243,6 +278,12 @@ impl SettingsStore {
             f(s);
             *s != before
         });
+    }
+
+    /// Notify subscribers without a change (something settings depend on changed, such as
+    /// the desktop's reduce motion).
+    pub fn touch(&self) {
+        self.tx.send_modify(|_| {});
     }
 
     /// Write the current settings to disk on a blocking thread. Never panics.

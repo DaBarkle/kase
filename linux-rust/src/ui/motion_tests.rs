@@ -75,3 +75,56 @@ fn kick_springs_back_to_target() {
     m.reset();
     assert_eq!(m.value("glow", 0.25, t0), 0.25);
 }
+
+#[test]
+fn staggered_spring_holds_its_start_until_the_delay_passes() {
+    let t0 = Instant::now();
+    let mut m = Motion::default();
+    m.target_after(
+        "ring",
+        1.0,
+        Some(0.0),
+        SMOOTH,
+        t0,
+        Duration::from_millis(160),
+    );
+    assert_eq!(m.value("ring", 9.0, at(t0, 0.1)), 0.0);
+    assert!(m.is_animating(at(t0, 0.1)));
+    assert!(m.value("ring", 9.0, at(t0, 0.5)) > 0.1);
+}
+
+#[test]
+fn reduced_motion_jumps_except_fades() {
+    let t0 = Instant::now();
+    let mut m = Motion {
+        reduced: true,
+        ..Motion::default()
+    };
+    m.target("ring", 0.7, Some(0.0), SMOOTH, t0);
+    assert_eq!(m.value("ring", 0.0, t0), 0.7);
+    m.target("fade", 1.0, Some(0.0), FADE, t0);
+    assert!(m.is_animating(t0));
+}
+
+#[test]
+fn forgotten_spring_plays_in_again() {
+    let t0 = Instant::now();
+    let mut m = Motion::default();
+    m.target("ring", 0.5, None, SMOOTH, t0);
+    m.forget("ring");
+    m.target("ring", 0.5, Some(0.0), SMOOTH, t0);
+    assert_eq!(m.value("ring", 9.0, t0), 0.0);
+}
+
+#[test]
+fn kdeglobals_instant_animations_mean_reduced() {
+    assert_eq!(
+        kde_reduced("[KDE]\nAnimationDurationFactor=0\n"),
+        Some(true)
+    );
+    assert_eq!(
+        kde_reduced("[General]\nAnimationDurationFactor=0\n[KDE]\nAnimationDurationFactor=0.5"),
+        Some(false)
+    );
+    assert_eq!(kde_reduced("[KDE]\nSingleClick=false"), None);
+}

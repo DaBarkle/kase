@@ -3,6 +3,62 @@
 use super::*;
 use iced::widget::{column, row};
 
+const PILL_TEXT: f32 = 13.0;
+
+/// One status line: light, headline and the quieter detail, at `alpha`.
+fn status_line<'a>(s: &format::Status, alpha: f32) -> Element<'a, Message> {
+    let mut line = row![
+        container(Space::new())
+            .width(7)
+            .height(7)
+            .style(style::status_dot(s.tone, alpha)),
+        text(s.headline.clone())
+            .size(PILL_TEXT)
+            .font(style::INTER_SEMIBOLD)
+            .wrapping(text::Wrapping::None)
+            .style(style::status_headline(alpha)),
+    ]
+    .spacing(8)
+    .align_y(Center);
+    if let Some(detail) = &s.detail {
+        line = line.push(
+            text(format!("· {detail}"))
+                .size(PILL_TEXT)
+                .font(style::INTER_MEDIUM)
+                .wrapping(text::Wrapping::None)
+                .style(style::status_detail(s.tone, alpha)),
+        );
+    }
+    line.into()
+}
+
+/// Laid-out width of one line of text, as iced will draw it.
+fn text_width(s: &str, font: iced::Font) -> f32 {
+    use iced::advanced::text::Paragraph as _;
+    type P = <iced::Renderer as iced::advanced::text::Renderer>::Paragraph;
+    P::with_text(iced::advanced::Text {
+        content: s,
+        bounds: Size::INFINITE,
+        size: PILL_TEXT.into(),
+        line_height: text::LineHeight::default(),
+        font,
+        align_x: text::Alignment::Default,
+        align_y: iced::alignment::Vertical::Top,
+        shaping: text::Shaping::Advanced,
+        wrapping: text::Wrapping::None,
+    })
+    .min_width()
+}
+
+/// The status island's width for `s`: padding, light, headline and detail.
+pub(super) fn pill_width(s: &format::Status) -> f32 {
+    let mut w = 14.0 + 7.0 + 8.0 + text_width(&s.headline, style::INTER_SEMIBOLD) + 16.0;
+    if let Some(d) = &s.detail {
+        w += 8.0 + text_width(&format!("· {d}"), style::INTER_MEDIUM);
+    }
+    w.ceil() + 1.0
+}
+
 impl App {
     pub(super) fn airpods_tab(&self) -> Element<'_, Message> {
         match (self.snap.adapter, self.primary()) {
@@ -59,12 +115,9 @@ impl App {
         let size = if gauges.len() == 1 { 132.0 } else { 104.0 };
         let mut rings = row![].spacing(4).align_y(iced::Alignment::Start);
         for (i, g) in gauges.iter().enumerate() {
-            let fill = g.level.map(|l| l.min(100) as f32 / 100.0);
-            let f = fill.map(|f| self.anim(Anim::Ring(i), f).max(0.0));
-            rings =
-                rings.push(container(widgets::gauge_view::<Message>(g, size, f)).center_x(Fill));
+            let m = self.gauge_motion(i, g);
+            rings = rings.push(container(widgets::gauge_view::<Message>(g, size, m)).width(Fill));
         }
-
         column![
             self.status_island(d),
             gap(18.0),
@@ -75,7 +128,7 @@ impl App {
                 .wrapping(text::Wrapping::WordOrGlyph),
             gap(4.0),
             text(subtitle).size(13).style(dim_text).align_x(Center),
-            gap(20.0),
+            gap(12.0),
             rings,
         ]
         .align_x(Center)
@@ -84,36 +137,34 @@ impl App {
     }
 
     /// The window's own little Dynamic Island: what matters right now, with an edge light
-    /// that pulses when it changes.
+    /// that pulses when it changes. Its width springs to fit new text while the old text
+    /// and colour cross-fade into the new.
     pub(super) fn status_island<'a>(&self, d: &DeviceSnapshot) -> Element<'a, Message> {
         let s = format::status(d, self.now);
-        let tone = s.tone;
-        let mut line = row![
-            container(Space::new())
-                .width(7)
-                .height(7)
-                .style(style::status_dot(tone)),
-            text(s.headline).size(13).font(style::INTER_SEMIBOLD),
-        ]
-        .spacing(8)
-        .align_y(Center);
-        if let Some(detail) = s.detail {
-            line = line.push(
-                text(format!("· {detail}"))
-                    .size(13)
-                    .font(style::INTER_MEDIUM)
-                    .style(style::status_detail(tone)),
-            );
+        let fade = self.anim(Anim::PillFade, 1.0).clamp(0.0, 1.0);
+        let from = self.prev_status.as_ref().filter(|_| fade < 1.0);
+        let mut lines = stack![];
+        if let Some(p) = from {
+            lines = lines.push(status_line(p, 1.0 - fade));
         }
+        lines = lines.push(status_line(&s, if from.is_some() { fade } else { 1.0 }));
         let glow = self.anim(Anim::Glow, 1.0);
-        container(line)
+        let width = self.anim(Anim::PillWidth, pill_width(&s));
+        container(lines)
             .padding(Padding {
                 top: 9.0,
                 bottom: 9.0,
                 left: 14.0,
-                right: 16.0,
+                right: 0.0,
             })
-            .style(style::status_island(tone, glow))
+            .width(Length::Fixed(width.max(40.0)))
+            .clip(true)
+            .style(style::status_island(
+                from.map_or(s.tone, |p| p.tone),
+                s.tone,
+                if from.is_some() { fade } else { 1.0 },
+                glow,
+            ))
             .into()
     }
 
@@ -150,7 +201,7 @@ impl App {
                 ]
                 .spacing(2)
                 .width(Fill),
-                take,
+                widgets::pressable(take),
             ]
             .align_y(Center)
             .spacing(12)

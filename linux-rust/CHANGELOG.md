@@ -6,6 +6,34 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-01
+
+### Added
+- **Tray quick look.** Left-clicking the tray icon opens a small island-styled card by the
+  tray with the left, right and case rings, the noise control modes and **Open Kase**. It
+  springs out of the tray's corner and folds away when you move off it, press Esc or click
+  again. Where it can't be shown (no layer-shell, overlay not running) or with **Quick look
+  from the tray** off, the click opens the window as before. ([#50])
+- **Reduce motion** in Settings (System / On / Off). System follows KDE's animation speed
+  (*Instant*) or GNOME's *Animations* switch, read through the desktop portal. When on,
+  slides and morphs become short fades and nothing loops, in the window and on the island.
+  ([#50])
+- **Keyboard tab switching.** Ctrl+Tab / Ctrl+Shift+Tab (and Ctrl+PageDown / PageUp) move
+  between the tabs, with a focus ring on the tab bar. ([#50])
+
+### Changed
+- **Battery numbers roll like an odometer** in the window, and on connect the rings fill one
+  after another (80 ms apart) while the numbers count up with them. ([#50])
+- **Charging looks alive.** The bolt pops in with a bounce, one green ripple leaves the ring
+  and a faint light runs round the arc while charging, in the window and on the purist
+  island (at most three trips round on the island, never over a fullscreen window). ([#50])
+- **Tab pages slide** in from the side of the chosen tab with a fade, and the status pill
+  springs to the width of its new text while its words and glow colour cross-fade. ([#50])
+- **Buttons and segments dip to 97%** while pressed and spring back. ([#50])
+- **The island's rings fill in turn** (left, right, case) when a card opens, content comes
+  in with a soft focus pull, and the L or R label dims while that pod is out of the ear.
+  ([#50])
+
 ## [0.9.6] - 2026-11-01
 
 ### Fixed
@@ -546,3 +574,4 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#47]: https://github.com/DaBarkle/kase/pull/47
 [#48]: https://github.com/DaBarkle/kase/pull/48
 [#49]: https://github.com/DaBarkle/kase/pull/49
+[#50]: https://github.com/DaBarkle/kase/pull/50

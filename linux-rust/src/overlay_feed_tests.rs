@@ -50,6 +50,18 @@ fn shows_each_pod_and_the_case_separately() {
 }
 
 #[test]
+fn a_pod_out_of_the_ear_is_marked_only_while_connected() {
+    let mut d = airpods4(80, 75, 40);
+    d.in_ear = (Some(false), None);
+    let s = to_overlay_state(&snap_of(vec![d.clone()])).unwrap();
+    assert!(s.left.unwrap().out_of_ear);
+    assert!(!s.right.unwrap().out_of_ear, "unknown is not out");
+    d.link = LinkState::Disconnected;
+    let s = to_overlay_state(&snap_of(vec![d])).unwrap();
+    assert!(!s.left.unwrap().out_of_ear);
+}
+
+#[test]
 fn stale_values_carry_their_age_and_fresh_ones_do_not() {
     let mut d = airpods4(80, 80, 40);
     d.battery.case.stale = true;

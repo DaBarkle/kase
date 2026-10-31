@@ -1,6 +1,6 @@
 //! Fake states for `--demo`, so the design can be tried without AirPods.
 
-use kase::overlay_protocol::{ComponentState, OverlayCommand, OverlayState};
+use kase::overlay_protocol::{ComponentState, ListeningMode, OverlayCommand, OverlayState};
 
 fn c(level: u8, charging: bool, present: bool) -> Option<ComponentState> {
     Some(ComponentState {
@@ -20,6 +20,12 @@ fn buds(name: &str, kind: &str) -> OverlayState {
         right: c(77, false, true),
         case: c(46, false, true),
         headphone: None,
+        modes: vec![
+            ListeningMode::Off,
+            ListeningMode::Transparency,
+            ListeningMode::Adaptive,
+            ListeningMode::NoiseCancellation,
+        ],
         ..Default::default()
     }
 }
@@ -64,6 +70,16 @@ pub fn states() -> Vec<(&'static str, OverlayState)> {
         ..Default::default()
     };
 
+    let mut in_case = normal.clone();
+    in_case.in_case = true;
+    in_case.left = c(82, true, true);
+    in_case.right = c(77, true, true);
+
+    let mut ear_out = normal.clone();
+    if let Some(l) = &mut ear_out.left {
+        l.out_of_ear = true;
+    }
+
     vec![
         ("normal", normal),
         ("case-charging", case_charging),
@@ -73,13 +89,14 @@ pub fn states() -> Vec<(&'static str, OverlayState)> {
         ("all-charging", all_charging),
         ("elsewhere", elsewhere),
         ("max", max),
+        ("in-case", in_case),
+        ("ear-out", ear_out),
     ]
 }
 
 /// A scripted run through every island state, for recordings: (seconds from start,
 /// command). Starts in compact mode.
 pub fn story() -> Vec<(f32, OverlayCommand)> {
-    use kase::overlay_protocol::ListeningMode;
     let mut s = buds("AirPods 4", "airpods4_anc");
     s.listening_mode = Some(ListeningMode::NoiseCancellation);
     s.mic = Some(kase::overlay_protocol::MicChoice::Desk);
@@ -106,6 +123,15 @@ pub fn story() -> Vec<(f32, OverlayCommand)> {
     // The right pod drops into the low band.
     s.right = c(19, false, true);
     at(15.0, &s);
+    // The left pod comes out of the ear for a moment: its L dims.
+    if let Some(l) = &mut s.left {
+        l.out_of_ear = true;
+    }
+    at(17.5, &s);
+    if let Some(l) = &mut s.left {
+        l.out_of_ear = false;
+    }
+    at(19.5, &s);
     // The iPhone takes the audio, then gives it back.
     s.elsewhere = true;
     s.elsewhere_name = Some("iPhone".into());

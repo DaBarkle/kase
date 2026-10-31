@@ -101,8 +101,10 @@ Run the install command above. The installer:
 The island sits at the top center of your screen, like the Dynamic Island on an iPhone.
 It changes shape to show what matters right now and moves on springs, the way the real
 thing does: it grows out of a small pill with a little bounce, its contents cross-fade,
-rings sweep in and percentages roll when they change. A change that arrives mid-animation
-bends the motion instead of restarting it.
+rings sweep in one after another and percentages roll when they change. While something
+charges, a faint light runs round its ring (a few times, never over a game). The L or R
+label dims while that pod is out of your ear. A change that arrives mid-animation bends the
+motion instead of restarting it.
 
 <div align="center">
 <img src="linux-rust/docs/screenshots/island-card.png" width="368" alt="The island's card: AirPods 4, Noise Cancellation, with rings for the left pod at 82%, the right pod at 77% and the case at 46%, and a spectrum of light running round its edge">
@@ -329,6 +331,26 @@ starts, both AirPods leave your ears, or the AirPods stop sending mic audio.
 The tray icon is a battery ring around a little AirPods case. It turns amber, then red, as
 the battery runs low, shows a bolt while charging, and greys out when the AirPods are
 disconnected. Closing the window keeps Kase running in the tray.
+
+Click the icon for a **quick look**: a small black card springs out of the corner by the
+tray with the left, right and case rings, a row to change noise control, and **Open Kase**
+for the full window. It goes away when you move off it, press Esc or click the icon again.
+Where it can't be shown (GNOME, which has no layer-shell), or if you switch off **Quick look
+from the tray** in **Settings**, clicking the icon opens the window as before. Right and
+middle click are unchanged.
+
+### Motion
+
+The window moves like the island: on connect the rings fill one after another while the
+numbers count up with them, and later changes roll like an odometer. When charging starts
+the bolt pops in, a green ripple leaves the ring and a faint light runs round it while it
+charges. Tab pages slide in from the side of the tab you picked, the status pill stretches
+to fit its new text and cross-fades its colour, and buttons dip slightly when pressed.
+Ctrl+Tab and Ctrl+Shift+Tab move between the tabs, with a focus ring on the tab bar.
+
+**Reduce motion** in **Settings** follows your desktop by default: KDE's animation speed
+set to *Instant*, or GNOME's *Animations* switched off. With it on, slides and morphs
+become short fades and nothing loops, in the window and on the island alike.
 
 ## Features
 

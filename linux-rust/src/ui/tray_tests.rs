@@ -208,3 +208,13 @@ fn icons_are_cached_and_badge_only_while_connected() {
     assert_eq!(t.icon_name(), ICON_NAME);
     assert_eq!(t.title(), "Kase");
 }
+
+#[test]
+fn quick_look_opens_in_the_corner_nearest_the_tray() {
+    use crate::overlay_protocol::OverlayPosition::*;
+    assert_eq!(quick_look_corner(0, 0), BottomRight);
+    assert_eq!(quick_look_corner(2500, 1420), BottomRight);
+    assert_eq!(quick_look_corner(2500, 10), TopRight);
+    assert_eq!(quick_look_corner(30, 1420), BottomLeft);
+    assert_eq!(quick_look_corner(30, 10), TopLeft);
+}
