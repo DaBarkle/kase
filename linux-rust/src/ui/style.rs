@@ -201,28 +201,38 @@ pub fn group(theme: &Theme) -> container::Style {
 
 /// The status island: always black (it is the island), with a coloured edge light whose
 /// strength is animated by the window (1 = resting glow, more while pulsing).
-pub fn status_island(tone: StatusTone, strength: f32) -> impl Fn(&Theme) -> container::Style {
+pub fn status_island(
+    from: StatusTone,
+    tone: StatusTone,
+    mix: f32,
+    strength: f32,
+) -> impl Fn(&Theme) -> container::Style {
     move |theme| {
         let t = Tokens::of(theme);
-        let glow = t.status(tone);
-        let s = strength.max(0.0);
+        let mix = mix.clamp(0.0, 1.0);
+        // Cross-fade the glow from the previous tone's colour to this one's.
+        let (a, b) = (t.status(from), t.status(tone));
+        let weight = lerp(a.is_some() as u8 as f32, b.is_some() as u8 as f32, mix);
+        let glow = match (a, b) {
+            (Some(a), Some(b)) => Some(mix_color(a, b, mix)),
+            (a, b) => a.or(b),
+        };
+        let s = strength.max(0.0) * weight;
+        let quiet = if t.dark {
+            white(0.10)
+        } else {
+            Color::TRANSPARENT
+        };
         let (edge, shadow) = match glow {
             Some(c) => (
-                with_alpha(c, (0.55 * s).min(1.0)),
+                mix_color(quiet, with_alpha(c, (0.55 * s).min(1.0)), weight),
                 Shadow {
                     color: with_alpha(c, (0.30 * s).min(0.8)),
                     offset: Vector::ZERO,
-                    blur_radius: 14.0 + 10.0 * (s - 1.0).max(0.0),
+                    blur_radius: 14.0 + 10.0 * (strength - 1.0).max(0.0),
                 },
             ),
-            None => (
-                if t.dark {
-                    white(0.10)
-                } else {
-                    Color::TRANSPARENT
-                },
-                Shadow::default(),
-            ),
+            None => (quiet, Shadow::default()),
         };
         container::Style {
             background: Some(Background::Color(Color::BLACK)),
@@ -238,18 +248,31 @@ pub fn status_island(tone: StatusTone, strength: f32) -> impl Fn(&Theme) -> cont
     }
 }
 
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+fn mix_color(a: Color, b: Color, t: f32) -> Color {
+    Color::from_rgba(
+        lerp(a.r, b.r, t),
+        lerp(a.g, b.g, t),
+        lerp(a.b, b.b, t),
+        lerp(a.a, b.a, t),
+    )
+}
+
 /// Status island's little light.
-pub fn status_dot(tone: StatusTone) -> impl Fn(&Theme) -> container::Style {
+pub fn status_dot(tone: StatusTone, alpha: f32) -> impl Fn(&Theme) -> container::Style {
     move |theme| {
         let c = Tokens::of(theme).status(tone).unwrap_or(rgb(0x8E8E93));
         container::Style {
-            background: Some(Background::Color(c)),
+            background: Some(Background::Color(with_alpha(c, alpha))),
             border: round(999.0),
             shadow: if tone == StatusTone::Idle {
                 Shadow::default()
             } else {
                 Shadow {
-                    color: with_alpha(c, 0.8),
+                    color: with_alpha(c, 0.8 * alpha),
                     offset: Vector::ZERO,
                     blur_radius: 6.0,
                 }
@@ -259,13 +282,35 @@ pub fn status_dot(tone: StatusTone) -> impl Fn(&Theme) -> container::Style {
     }
 }
 
-pub fn status_detail(tone: StatusTone) -> impl Fn(&Theme) -> iced::widget::text::Style {
+pub fn status_detail(tone: StatusTone, alpha: f32) -> impl Fn(&Theme) -> iced::widget::text::Style {
     move |_theme| iced::widget::text::Style {
-        color: Some(match tone {
-            StatusTone::Low => DARK.amber,
-            StatusTone::Critical => DARK.red,
-            _ => white(0.55),
-        }),
+        color: Some(with_alpha(
+            match tone {
+                StatusTone::Low => DARK.amber,
+                StatusTone::Critical => DARK.red,
+                _ => white(0.55),
+            },
+            alpha,
+        )),
+    }
+}
+
+/// Status island headline, faded by `alpha` while it cross-fades.
+pub fn status_headline(alpha: f32) -> impl Fn(&Theme) -> iced::widget::text::Style {
+    move |_theme| iced::widget::text::Style {
+        color: Some(white(0.92 * alpha)),
+    }
+}
+
+/// The keyboard focus ring around the tab bar.
+pub fn focus_ring(theme: &Theme) -> container::Style {
+    container::Style {
+        border: Border {
+            color: with_alpha(Tokens::of(theme).accent, 0.85),
+            width: 2.0,
+            radius: 21.0.into(),
+        },
+        ..Default::default()
     }
 }
 

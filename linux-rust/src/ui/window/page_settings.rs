@@ -82,6 +82,36 @@ impl App {
                 .into(),
             ),
             setting_row(
+                "Reduce motion",
+                Some(match s.reduce_motion {
+                    ReduceMotion::System => "Follows your desktop's animation setting",
+                    ReduceMotion::On => "Short fades instead of slides, nothing loops",
+                    ReduceMotion::Off => "Full animation",
+                }),
+                container(slide_control(
+                    &[
+                        ("System", ReduceMotion::System),
+                        ("On", ReduceMotion::On),
+                        ("Off", ReduceMotion::Off),
+                    ],
+                    s.reduce_motion,
+                    Some(self.anim(Anim::ReduceMotion, 0.0)),
+                    true,
+                    Message::SetReduceMotion,
+                    Shape::COMPACT,
+                ))
+                .width(Length::Fixed(196.0))
+                .into(),
+            ),
+            setting_row(
+                "Quick look from the tray",
+                Some("Clicking the tray icon shows battery and listening mode by the tray"),
+                switch(
+                    s.tray_quick_look,
+                    Some(Message::SetTrayQuickLook as fn(bool) -> Message),
+                ),
+            ),
+            setting_row(
                 "Start at login",
                 Some("Runs quietly in the tray"),
                 switch(
@@ -205,15 +235,17 @@ impl App {
                     .size(14)
                     .style(style::input)
                     .width(Fill),
-                button(text("Rename").size(13).font(style::INTER_MEDIUM))
-                    .padding(Padding {
-                        top: 8.0,
-                        bottom: 8.0,
-                        left: 14.0,
-                        right: 14.0,
-                    })
-                    .style(style::secondary)
-                    .on_press_maybe(can_rename.then_some(Message::RenameSubmit)),
+                widgets::pressable(
+                    button(text("Rename").size(13).font(style::INTER_MEDIUM))
+                        .padding(Padding {
+                            top: 8.0,
+                            bottom: 8.0,
+                            left: 14.0,
+                            right: 14.0,
+                        })
+                        .style(style::secondary)
+                        .on_press_maybe(can_rename.then_some(Message::RenameSubmit))
+                ),
             ]
             .spacing(8)
             .align_y(Center),
@@ -383,15 +415,17 @@ impl App {
             .size(12)
             .style(dim_text)
             .width(Fill),
-            button(text(label).size(12).font(style::INTER_MEDIUM))
-                .padding(Padding {
-                    top: 6.0,
-                    bottom: 6.0,
-                    left: 12.0,
-                    right: 12.0,
-                })
-                .style(style::secondary)
-                .on_press(Message::CopyCommand(setting)),
+            widgets::pressable(
+                button(text(label).size(12).font(style::INTER_MEDIUM))
+                    .padding(Padding {
+                        top: 6.0,
+                        bottom: 6.0,
+                        left: 12.0,
+                        right: 12.0,
+                    })
+                    .style(style::secondary)
+                    .on_press(Message::CopyCommand(setting))
+            ),
         ]
         .spacing(12)
         .align_y(Center)

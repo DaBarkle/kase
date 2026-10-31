@@ -39,6 +39,17 @@ settings. After installing, log out and back in, then check that:
    *Noise Cancellation* / *Transparency* alert appears. Put the case on a charger: *Case
    charging* with a green ring.
 6. With the island at rest, `top -p $(pgrep -f kase-overlay)` shows 0.0% CPU.
+7. Left-click the tray icon: the quick look springs out of the corner by the tray with three
+   rings, the noise control row and **Open Kase**. Tap a mode: the AirPods switch. Move off
+   it: it folds away after about a second; untouched it goes after ~6 s. **Open Kase** opens
+   the window. With **Quick look from the tray** off (Settings), a click opens the window.
+   At rest with the card open, the overlay's CPU stays at 0.0%.
+8. Open the window: the rings fill left, right, case in turn while the numbers count up.
+   Put the case on a charger: the bolt pops in, one green ripple leaves the ring and a light
+   runs round it. Switch tabs: the page slides in from the tab's side.
+9. Set **Reduce motion** to On (or KDE System Settings → Animation speed → Instant with it on
+   System): tab switches and the island only fade, the charging light doesn't run, and the
+   island's shape jumps instead of morphing.
 
 ## 3. The walk-away bug
 

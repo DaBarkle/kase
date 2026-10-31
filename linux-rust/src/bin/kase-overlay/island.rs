@@ -51,6 +51,12 @@ pub const CONTENT_IN: f32 = 0.30;
 /// Rings sweep from empty to their level when a card or alert opens.
 pub const REVEAL_DELAY: f32 = 0.10;
 pub const REVEAL: f32 = 0.80;
+/// Rings in a card fill one after another, this far apart (left, right, case).
+pub const STAGGER: f32 = 0.08;
+/// One trip of the light round a charging ring...
+pub const SHEEN_LOOP: f32 = 1.8;
+/// ...for at most three trips, so a charging card left up costs nothing after.
+pub const SHEEN_MAX: f32 = 3.0 * SHEEN_LOOP;
 /// A changed percentage rolls to its new value.
 pub const ROLL: f32 = 0.36;
 /// The low battery ring breathes twice.
@@ -304,7 +310,7 @@ impl Content {
         match self {
             Content::Compact => CONTENT_IN_DELAY + CONTENT_IN,
             Content::Alert(Alert::Low(_)) => BREATHE.max(REVEAL_DELAY + REVEAL),
-            _ => REVEAL_DELAY + REVEAL,
+            _ => REVEAL_DELAY + REVEAL + 2.0 * STAGGER,
         }
     }
 }
@@ -384,6 +390,12 @@ pub fn ease_out_back(t: f32) -> f32 {
     let c1 = 1.2;
     let c3 = c1 + 1.0;
     1.0 + c3 * (t - 1.0).powi(3) + c1 * (t - 1.0).powi(2)
+}
+
+/// 0..1 sweep of the `i`th ring, `age` seconds after its content appeared: each ring a
+/// beat after the one before it.
+pub fn reveal_at(age: f32, i: usize) -> f32 {
+    ease_out_cubic((age - REVEAL_DELAY - i as f32 * STAGGER) / REVEAL)
 }
 
 // --- Motion ---------------------------------------------------------------------
@@ -525,6 +537,12 @@ pub struct Motion {
     pub glow: Option<Glow>,
     /// Sideways offset of a head shake, in px (purist style only).
     pub shake: Spring,
+    /// Reduce motion: shapes jump, content fades, numbers don't roll, nothing loops.
+    pub reduced: bool,
+    /// A charging ring is on show (purist style): its light runs, for [`SHEEN_MAX`].
+    pub sheen: bool,
+    /// Seconds the current content's charging light has been running.
+    pub sheen_age: f32,
 }
 
 impl Default for Motion {
@@ -542,6 +560,9 @@ impl Default for Motion {
             caption: Caption::default(),
             glow: None,
             shake: Spring::new(0.0, SHAKE, 0.05),
+            reduced: false,
+            sheen: false,
+            sheen_age: 0.0,
         }
     }
 }
@@ -552,7 +573,9 @@ impl Motion {
         let levels = self.levels;
         let caption = std::mem::take(&mut self.caption);
         let glow = self.glow;
+        let reduced = self.reduced;
         *self = Self::default();
+        self.reduced = reduced;
         self.levels = levels;
         self.caption = caption;
         // A glow asked for just before the surface existed plays as the island opens.
@@ -570,6 +593,20 @@ impl Motion {
         }
         self.shown = content;
         self.shown_age = 0.0;
+        self.sheen_age = 0.0;
+        if self.reduced {
+            // A short fade in place of the morph.
+            match target {
+                Some((w, h, r)) => {
+                    self.w.snap(w);
+                    self.h.snap(h);
+                    self.r.snap(r);
+                    self.alpha.to(1.0, FADE_IN);
+                }
+                None => self.alpha.to(0.0, FADE_OUT),
+            }
+            return;
+        }
         match target {
             Some((w, h, r)) => {
                 let grow = w * h > self.w.value * self.h.value;
@@ -595,6 +632,12 @@ impl Motion {
     /// The shown content's size changed (e.g. a longer title); follow it.
     pub fn resize(&mut self, (w, h, r): (f32, f32, f32)) {
         if self.shown.is_some() && (self.w.target, self.h.target, self.r.target) != (w, h, r) {
+            if self.reduced {
+                self.w.snap(w);
+                self.h.snap(h);
+                self.r.snap(r);
+                return;
+            }
             let grow = w * h > self.w.target * self.h.target;
             let (fw, fh) = if grow {
                 (GROW_W, GROW_H)
@@ -609,7 +652,9 @@ impl Motion {
 
     /// A small bounce of the whole card, for news inside a card that stays open.
     pub fn bump(&mut self) {
-        self.pulse.kick(0.55);
+        if !self.reduced {
+            self.pulse.kick(0.55);
+        }
     }
 
     /// Starts a border glow, replacing any glow still running.
@@ -619,16 +664,19 @@ impl Motion {
 
     /// A quick side to side shake, for something that didn't work.
     pub fn shake(&mut self) {
-        self.shake.kick(-200.0);
+        if !self.reduced {
+            self.shake.kick(-200.0);
+        }
     }
 
     /// Sets the card's second line; it rolls over when `animate` and it changed.
     pub fn set_caption(&mut self, text: &str, animate: bool) {
-        self.caption.set(text, animate);
+        self.caption.set(text, animate && !self.reduced);
     }
 
     /// Takes new battery readings. Returns true when one of them starts to animate.
     pub fn update_levels(&mut self, state: &OverlayState, animate: bool) -> bool {
+        let animate = animate && !self.reduced;
         [
             self.levels[LEFT].update(state.left.as_ref(), animate),
             self.levels[RIGHT].update(state.right.as_ref(), animate),
@@ -677,7 +725,17 @@ impl Motion {
             self.shown_age = (self.shown_age + dt).min(c.settle());
             moving = true;
         }
+        if self.sheen && !self.reduced && self.shown.is_some() && self.sheen_age < SHEEN_MAX {
+            self.sheen_age = (self.sheen_age + dt).min(SHEEN_MAX);
+            moving = true;
+        }
         moving
+    }
+
+    /// 0..1 position of the light on a charging ring, None when it doesn't run.
+    pub fn sheen_phase(&self) -> Option<f32> {
+        (self.sheen && !self.reduced && self.sheen_age < SHEEN_MAX)
+            .then(|| (self.sheen_age / SHEEN_LOOP).fract())
     }
 
     /// True once the island has faded away completely.
@@ -688,6 +746,9 @@ impl Motion {
     /// Opacity and scale of the incoming content.
     pub fn incoming(&self) -> (f32, f32) {
         let t = (self.shown_age - CONTENT_IN_DELAY) / CONTENT_IN;
+        if self.reduced {
+            return (smoothstep(t), 1.0);
+        }
         (smoothstep(t), 0.9 + 0.1 * ease_out_back(t))
     }
 
@@ -700,10 +761,6 @@ impl Motion {
     }
 
     /// 0..1 sweep of rings in freshly opened content.
-    pub fn reveal(&self) -> f32 {
-        ease_out_cubic((self.shown_age - REVEAL_DELAY) / REVEAL)
-    }
-
     /// Current island size, never smaller than zero.
     pub fn size(&self) -> (f32, f32, f32) {
         let w = self.w.value.max(1.0);

@@ -18,6 +18,8 @@ fn every_setting_survives_a_save_and_load() {
         return_to_pc: false,
         case_card: false,
         stay_alongside: false,
+        reduce_motion: ReduceMotion::On,
+        tray_quick_look: false,
         extra: Map::new(),
     };
     let back = Settings::from_json(&s.to_json());
@@ -171,4 +173,14 @@ fn overlay_config_reads_and_clamps_values() {
     assert_eq!(cfg.glass, 1.0);
     assert_eq!(cfg.style, OverlayStyle::Classic);
     assert_eq!(cfg.size, OverlaySize::ExtraLarge);
+}
+
+#[test]
+fn reduce_motion_follows_the_system_unless_set() {
+    let mut s = Settings::default();
+    assert_eq!(s.reduce_motion, ReduceMotion::System);
+    s.reduce_motion = ReduceMotion::On;
+    assert!(s.reduces_motion() && s.overlay_config().reduce_motion);
+    s.reduce_motion = ReduceMotion::Off;
+    assert!(!s.reduces_motion());
 }

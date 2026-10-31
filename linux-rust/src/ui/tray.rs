@@ -126,8 +126,11 @@ impl ksni::Tray for LibreTray {
         }
     }
 
-    fn activate(&mut self, _x: i32, _y: i32) {
-        let _ = self.ui_tx.send(BluetoothUIMessage::OpenWindow);
+    fn activate(&mut self, x: i32, y: i32) {
+        // The quick look by the tray where it can be shown, else the window as before.
+        if !crate::overlay_feed::quick_look(quick_look_corner(x, y)) {
+            let _ = self.ui_tx.send(BluetoothUIMessage::OpenWindow);
+        }
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
@@ -241,6 +244,23 @@ impl ksni::Tray for LibreTray {
             .into(),
         );
         items
+    }
+}
+
+/// Which screen corner the tray is nearest, from where the panel says it was clicked.
+/// Panels that don't say (0, 0) usually sit at the bottom right (Plasma's default).
+/// shortcut: the screen size is unknown here, so "near the left/top" is a fixed 400 px,
+/// fine for panels at an edge; upgrade if a centered tray turns up.
+pub fn quick_look_corner(x: i32, y: i32) -> crate::overlay_protocol::OverlayPosition {
+    use crate::overlay_protocol::OverlayPosition::*;
+    if (x, y) == (0, 0) {
+        return BottomRight;
+    }
+    match (y < 400, x < 400) {
+        (true, true) => TopLeft,
+        (true, false) => TopRight,
+        (false, true) => BottomLeft,
+        (false, false) => BottomRight,
     }
 }
 

@@ -109,6 +109,18 @@ fn placeholder() -> OverlayState {
     }
 }
 
+/// The content draws a charging ring: the full card, or a charging alert.
+fn shows_charging(content: Option<&Content>, state: &OverlayState) -> bool {
+    let charging = |c: &Option<ComponentState>| c.as_ref().is_some_and(|c| c.charging && c.present);
+    match content {
+        Some(Content::Expanded) => [&state.left, &state.right, &state.case, &state.headphone]
+            .into_iter()
+            .any(charging),
+        Some(Content::Alert(Alert::Charging(_))) => true,
+        _ => false,
+    }
+}
+
 /// How long the card stays up when the AirPods connect from the open case.
 const CASE_CARD: Duration = Duration::from_secs(6);
 /// How long it stays after a pod comes out of the case.
@@ -192,7 +204,10 @@ impl Controller {
     /// Lights the border for `content` (purist style only; the classic island has no
     /// key line, so it would only spend frames on nothing).
     fn announce(&mut self, content: &Content, connected: bool, now: Instant) {
-        if self.config.style != OverlayStyle::Purist || self.config.mode == OverlayMode::Off {
+        if self.config.style != OverlayStyle::Purist
+            || self.config.mode == OverlayMode::Off
+            || self.config.reduce_motion
+        {
             return;
         }
         let state = self.display_state(now).unwrap_or_else(placeholder);
@@ -293,7 +308,8 @@ impl Controller {
                 self.farewell_until = None;
                 self.forced_hidden = true;
             }
-            OverlayCommand::Quit => {}
+            // The quick look has its own surface (`main.rs`); nothing changes here.
+            OverlayCommand::QuickLook { .. } | OverlayCommand::Quit => {}
         }
     }
 
@@ -403,6 +419,11 @@ impl Controller {
         self.last_tick = Some(now);
 
         let state = self.display_state(now).unwrap_or_else(placeholder);
+        self.motion.reduced = self.config.reduce_motion;
+        // The light on charging rings runs on the purist island, never over a game.
+        self.motion.sheen = self.config.style == OverlayStyle::Purist
+            && !self.fullscreen
+            && shows_charging(target.as_ref(), &state);
         let action = match (&target, self.mapped) {
             (Some(_), false) => {
                 self.mapped = true;

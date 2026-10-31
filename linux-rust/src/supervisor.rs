@@ -52,7 +52,19 @@ pub async fn run(
         audio::guard::unmute_left_hushed(&audio::pulse::LibPulse, &audio::guard::hush_file()).await;
     });
     let battery = BatteryService::spawn(hub.clone());
-    overlay_feed::spawn(hub.clone(), settings);
+    // Reduce motion "System": ask the desktop once, and let the island follow.
+    let store = settings.clone();
+    tokio::spawn(async move {
+        if ui::motion::probe_system().await {
+            store.touch();
+        }
+    });
+    overlay_feed::spawn(
+        hub.clone(),
+        settings,
+        ui_tx.clone(),
+        active_commands.clone(),
+    );
     fullscreen_watch::spawn();
     toplevel_watch::spawn();
 

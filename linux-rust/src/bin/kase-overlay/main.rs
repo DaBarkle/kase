@@ -20,6 +20,7 @@ mod island;
 mod logic;
 mod probe;
 mod purist;
+mod quick;
 mod spring;
 mod view;
 
@@ -40,8 +41,8 @@ use iced_layershell::to_layer_message;
 use log::{debug, info, warn};
 
 use kase::overlay_protocol::{
-    EXIT_UNSUPPORTED, OverlayCommand, OverlayConfig, OverlayMode, OverlayPosition, OverlaySize,
-    OverlayState, OverlayStyle,
+    EXIT_UNSUPPORTED, OverlayCommand, OverlayConfig, OverlayEvent, OverlayMode, OverlayPosition,
+    OverlaySize, OverlayState, OverlayStyle,
 };
 use logic::{Controller, SurfaceAction};
 
@@ -58,6 +59,8 @@ struct Args {
     position: Option<OverlayPosition>,
     style: Option<OverlayStyle>,
     size: Option<OverlaySize>,
+    /// With a demo: open the tray quick look too.
+    quick_look: bool,
 }
 
 fn usage() -> &'static str {
@@ -66,12 +69,13 @@ fn usage() -> &'static str {
        --demo              cycle through sample states (always visible)\n  \
        --demo-auto         like --demo, but in auto mode (pops up, then unmaps)\n  \
        --demo-compact      like --demo, but in compact mode (expands on changes)\n  \
-       --step N            with --demo: show only sample N (0-7)\n  \
+       --step N            with --demo: show only sample N (0-9)\n  \
        --demo-story        play a scripted tour of every island state (for recordings)\n  \
        --mode M            with --demo-story: auto|compact|always (default compact)\n  \
        --position P        top-left|top-center|top-right|bottom-left|bottom-center|bottom-right\n  \
        --style S           with a demo: classic|purist\n  \
        --size S            with a demo: small|medium|large|extra_large\n  \
+       --quick-look        with --demo: also open the tray quick look\n  \
        --probe             check for layer-shell support and exit (0 or 3)\n"
 }
 
@@ -85,6 +89,10 @@ enum Message {
     Wake(Instant),
     DemoStep,
     WindowClosed(Id),
+    /// The pointer moved on the quick look: what it is over, and whether it is on it.
+    QuickPointer(Option<quick::Hit>, bool),
+    QuickTap(quick::Hit),
+    Key(iced::keyboard::Key),
 }
 
 struct Overlay {
@@ -98,6 +106,11 @@ struct Overlay {
     wake_at: Option<Instant>,
     /// Playing `--demo-story`: stdin is not the protocol.
     story: bool,
+    /// The tray quick look, while it is open, and its surface.
+    quick: Option<(Id, quick::Quick)>,
+    quick_tick: Option<Instant>,
+    /// The quick look's springs still move (frames needed).
+    quick_moving: bool,
 }
 
 struct DemoState {
@@ -158,9 +171,17 @@ impl Overlay {
             last_lost: None,
             wake_at: None,
             story: args.story,
+            quick: None,
+            quick_tick: None,
+            quick_moving: false,
         };
         let task = if me.demo.is_some() {
-            me.demo_apply()
+            let demo = me.demo_apply();
+            if args.quick_look {
+                Task::batch([demo, me.toggle_quick(OverlayPosition::BottomRight)])
+            } else {
+                demo
+            }
         } else if args.story {
             me.ctl.config.mode = args.mode.unwrap_or(OverlayMode::Compact);
             Task::batch(demo::story().into_iter().map(|(secs, cmd)| {
@@ -210,6 +231,77 @@ impl Overlay {
             events_transparent: true,
             namespace: Some(NAMESPACE.into()),
         }
+    }
+
+    /// Opens the quick look in `corner`, or closes it when it is open.
+    fn toggle_quick(&mut self, corner: OverlayPosition) -> Task<Message> {
+        if let Some((_, q)) = &mut self.quick {
+            // A click while it folds away brings it back.
+            if q.closing() {
+                q.reopen()
+            } else {
+                q.close()
+            }
+            self.quick_moving = true;
+            return Task::none();
+        }
+        let Some(state) = self.ctl.display_state(Instant::now()) else {
+            // Nothing to show yet: the window says more than an empty card.
+            emit(&OverlayEvent::OpenWindow);
+            return Task::none();
+        };
+        let (w, h) = quick::size(&state);
+        let pad = 2.0 * quick::PAD;
+        let mut q = quick::Quick::new(corner, self.ctl.config.reduce_motion);
+        q.follow(&state);
+        let id = Id::unique();
+        self.quick = Some((id, q));
+        self.quick_tick = None;
+        self.quick_moving = true;
+        let corner = match corner {
+            OverlayPosition::TopCenter => OverlayPosition::TopRight,
+            OverlayPosition::BottomCenter => OverlayPosition::BottomRight,
+            c => c,
+        };
+        Task::done(Message::NewLayerShell {
+            settings: NewLayerShellSettings {
+                size: Some(((w + pad).ceil() as u32, (h + pad).ceil() as u32)),
+                // Above windows, beside the panel (exclusive zones are kept clear).
+                layer: Layer::Top,
+                anchor: anchor_for(corner),
+                exclusive_zone: Some(0),
+                margin: Some((6, 6, 6, 6)),
+                // Focus only when clicked, so Escape can close it.
+                keyboard_interactivity: KeyboardInteractivity::OnDemand,
+                output_option: OutputOption::Active,
+                events_transparent: false,
+                namespace: Some(format!("{NAMESPACE}-quick-look")),
+            },
+            id,
+        })
+    }
+
+    /// Steps the quick look and takes its surface down once it has folded away.
+    fn sync_quick(&mut self, now: Instant) -> Task<Message> {
+        let Some((id, q)) = &mut self.quick else {
+            return Task::none();
+        };
+        let dt = self
+            .quick_tick
+            .map(|t| now.saturating_duration_since(t))
+            .unwrap_or_default()
+            .min(Duration::from_secs(1));
+        self.quick_tick = Some(now);
+        if let Some(state) = self.ctl.display_state(now) {
+            q.follow(&state);
+        }
+        self.quick_moving = q.step(dt.as_secs_f32());
+        if q.gone() {
+            let id = *id;
+            self.quick = None;
+            return iced::window::close(id);
+        }
+        Task::none()
     }
 
     /// Advances the controller, maps/unmaps the layer surface, and schedules the next
@@ -269,6 +361,43 @@ impl Overlay {
                     iced::exit()
                 }
             }
+            Message::Cmd(OverlayCommand::QuickLook { corner }) => self.toggle_quick(corner),
+            Message::QuickPointer(hit, inside) => {
+                if let Some((_, q)) = &mut self.quick {
+                    q.pointer(hit, inside);
+                }
+                Task::none()
+            }
+            Message::QuickTap(hit) => {
+                let Some((_, q)) = &mut self.quick else {
+                    return Task::none();
+                };
+                // The highlight glides (or the card folds): frames again.
+                self.quick_moving = true;
+                let state = self.ctl.display_state(now).unwrap_or_default();
+                match hit {
+                    quick::Hit::Open => {
+                        emit(&OverlayEvent::OpenWindow);
+                        q.close();
+                    }
+                    quick::Hit::Mode(i) => {
+                        if let Some(&mode) = state.modes.get(i) {
+                            q.pending = Some(mode);
+                            q.follow(&state);
+                            emit(&OverlayEvent::SetListeningMode { mode });
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::Key(key) => {
+                if key == iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape)
+                    && let Some((_, q)) = &mut self.quick
+                {
+                    q.close();
+                }
+                Task::none()
+            }
             Message::Cmd(cmd) => {
                 let old_cfg = self.ctl.config.clone();
                 self.ctl.apply(cmd, now);
@@ -300,7 +429,10 @@ impl Overlay {
                 tasks.push(self.sync(now));
                 Task::batch(tasks)
             }
-            Message::Tick(at) => self.sync(at.max(now)),
+            Message::Tick(at) => {
+                let at = at.max(now);
+                Task::batch([self.sync(at), self.sync_quick(at)])
+            }
             Message::Wake(at) => {
                 if self.wake_at == Some(at) {
                     self.wake_at = None;
@@ -312,6 +444,10 @@ impl Overlay {
                     d.step = d.step.wrapping_add(1);
                 }
                 self.demo_apply()
+            }
+            Message::WindowClosed(id) if self.quick.as_ref().is_some_and(|(q, _)| *q == id) => {
+                self.quick = None;
+                Task::none()
             }
             Message::WindowClosed(id) => {
                 if self.window == Some(id) {
@@ -334,8 +470,20 @@ impl Overlay {
         }
     }
 
-    fn view(&self, _id: Id) -> Element<'_, Message> {
+    fn view(&self, id: Id) -> Element<'_, Message> {
         let now = Instant::now();
+        if let Some((qid, q)) = &self.quick
+            && *qid == id
+        {
+            return canvas(view::QuickView {
+                ctl: &self.ctl,
+                quick: q,
+                now,
+            })
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
+        }
         if self.ctl.display_state(now).is_none() {
             return iced::widget::Space::new().into();
         }
@@ -374,6 +522,18 @@ impl Overlay {
             }
             subs.push(iced::time::every(Duration::from_millis(100)).map(Message::Tick));
         }
+        if self.quick.is_some() {
+            // While the quick look is open: frames while it moves, and a slow timer for
+            // its close-by-itself rules.
+            if self.quick_moving {
+                subs.push(iced::window::frames().map(Message::Tick));
+            }
+            subs.push(iced::time::every(Duration::from_millis(250)).map(Message::Tick));
+            subs.push(iced::keyboard::listen().filter_map(|e| match e {
+                iced::keyboard::Event::KeyPressed { key, .. } => Some(Message::Key(key)),
+                _ => None,
+            }));
+        }
         if let Some(d) = &self.demo
             && !d.fixed
         {
@@ -385,6 +545,18 @@ impl Overlay {
             subs.push(iced::time::every(Duration::from_millis(every)).map(|_| Message::DemoStep));
         }
         Subscription::batch(subs)
+    }
+}
+
+/// Tells the app what the user did on the quick look (one JSON line on stdout).
+fn emit(ev: &OverlayEvent) {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    if let Err(e) = out
+        .write_all(ev.to_line().as_bytes())
+        .and_then(|_| out.flush())
+    {
+        debug!("cannot tell the app about {ev:?}: {e}");
     }
 }
 
@@ -475,6 +647,7 @@ fn parse_args() -> Result<(Args, bool), String> {
                         .map_err(|_| "bad --size value".to_string())?,
                 );
             }
+            "--quick-look" => args.quick_look = true,
             "--probe" => probe_only = true,
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown argument: {other}")),

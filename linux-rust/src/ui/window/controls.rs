@@ -131,14 +131,18 @@ pub(super) fn apple_confirm<'a>(
             text(body).size(12).style(dim_text),
             row![
                 Space::new().width(Fill),
-                button(text("Cancel").size(12).font(style::INTER_MEDIUM))
-                    .padding(pad)
-                    .style(style::secondary)
-                    .on_press(Message::AppleCancel),
-                button(text(action).size(12).font(style::INTER_SEMIBOLD))
-                    .padding(pad)
-                    .style(style::primary)
-                    .on_press(Message::AppleConfirm),
+                widgets::pressable(
+                    button(text("Cancel").size(12).font(style::INTER_MEDIUM))
+                        .padding(pad)
+                        .style(style::secondary)
+                        .on_press(Message::AppleCancel)
+                ),
+                widgets::pressable(
+                    button(text(action).size(12).font(style::INTER_SEMIBOLD))
+                        .padding(pad)
+                        .style(style::primary)
+                        .on_press(Message::AppleConfirm)
+                ),
             ]
             .spacing(8)
             .align_y(Center),
@@ -296,7 +300,7 @@ pub(super) fn slide_control<'a, T: Copy + PartialEq + 'a>(
     let mut labels = row![];
     for &(label, value) in options {
         let is_sel = value == selected;
-        labels = labels.push(
+        labels = labels.push(widgets::pressable(
             button(
                 text(label)
                     .size(shape.text)
@@ -316,7 +320,7 @@ pub(super) fn slide_control<'a, T: Copy + PartialEq + 'a>(
             .padding(0)
             .style(style::segment(is_sel))
             .on_press_maybe(enabled.then_some(msg(value))),
-        );
+        ));
     }
     let mut layers = stack![];
     if let Some(p) = pos {
@@ -361,7 +365,7 @@ pub(super) fn mode_tiles<'a>(
         .spacing(7)
         .align_x(Center)
         .width(Fill);
-        tiles = tiles.push(
+        tiles = tiles.push(widgets::pressable(
             button(content)
                 .width(Fill)
                 .height(Fill)
@@ -373,7 +377,7 @@ pub(super) fn mode_tiles<'a>(
                 })
                 .style(style::tile(is_sel))
                 .on_press_maybe(enabled.then_some(Message::SetMode(m))),
-        );
+        ));
     }
     let mut layers = stack![];
     if let Some(p) = pos {

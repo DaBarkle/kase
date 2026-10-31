@@ -20,7 +20,12 @@ use std::time::{Duration, Instant};
 
 use log::{debug, info, warn};
 
-use crate::overlay_protocol::{EXIT_UNSUPPORTED, OverlayCommand, OverlayConfig, OverlayState};
+use crate::overlay_protocol::{
+    EXIT_UNSUPPORTED, OverlayCommand, OverlayConfig, OverlayEvent, OverlayState,
+};
+
+/// Where the overlay's own events (taps on the quick look) go.
+pub type Events = tokio::sync::mpsc::UnboundedSender<OverlayEvent>;
 
 pub const OVERLAY_BIN: &str = "kase-overlay";
 
@@ -30,27 +35,35 @@ const RESTART_WINDOW: Duration = Duration::from_secs(60);
 const POLL: Duration = Duration::from_millis(500);
 
 enum Msg {
-    Cmd(OverlayCommand),
+    Cmd(Box<OverlayCommand>),
     Shutdown,
 }
 
 pub struct OverlayClient {
     tx: Sender<Msg>,
     unsupported: Arc<AtomicBool>,
+    /// The overlay process is up and reading commands.
+    running: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl OverlayClient {
     /// Starts the supervisor thread, which launches the overlay process.
     /// Never blocks and never fails; check [`Self::unsupported`] later.
-    pub fn spawn(config: OverlayConfig) -> OverlayClient {
-        Self::spawn_with_binary(config, find_binary())
+    pub fn spawn(config: OverlayConfig, events: Option<Events>) -> OverlayClient {
+        Self::spawn_with_binary(config, find_binary(), events)
     }
 
-    fn spawn_with_binary(config: OverlayConfig, binary: Option<PathBuf>) -> OverlayClient {
+    fn spawn_with_binary(
+        config: OverlayConfig,
+        binary: Option<PathBuf>,
+        events: Option<Events>,
+    ) -> OverlayClient {
         let (tx, rx) = mpsc::channel();
         let unsupported = Arc::new(AtomicBool::new(false));
+        let running = Arc::new(AtomicBool::new(false));
         let sup = Supervisor {
+            running: running.clone(),
             binary,
             config,
             state: None,
@@ -66,6 +79,7 @@ impl OverlayClient {
             gave_up: false,
             started_at: None,
             software: false,
+            events,
         };
         let thread = std::thread::Builder::new()
             .name("overlay-client".into())
@@ -81,13 +95,14 @@ impl OverlayClient {
         OverlayClient {
             tx,
             unsupported,
+            running,
             thread,
         }
     }
 
     fn send(&self, cmd: OverlayCommand) {
         // Fails only after shutdown; nothing to do then.
-        let _ = self.tx.send(Msg::Cmd(cmd));
+        let _ = self.tx.send(Msg::Cmd(Box::new(cmd)));
     }
 
     /// Sends the latest battery state. The overlay decides itself whether the
@@ -111,6 +126,11 @@ impl OverlayClient {
         self.send(OverlayCommand::Fullscreen { active });
     }
 
+    /// Opens or closes the tray quick look in `corner`.
+    pub fn quick_look(&self, corner: crate::overlay_protocol::OverlayPosition) {
+        self.send(OverlayCommand::QuickLook { corner });
+    }
+
     pub fn set_config(&self, config: OverlayConfig) {
         self.send(OverlayCommand::Config(config));
     }
@@ -119,6 +139,11 @@ impl OverlayClient {
     /// Wayland, or the binary is missing). Use desktop notifications instead.
     pub fn unsupported(&self) -> bool {
         self.unsupported.load(Ordering::SeqCst)
+    }
+
+    /// The overlay is up now, so a command sent now gets there.
+    pub fn running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
     }
 
     /// Asks the overlay to quit and stops the supervisor. Does not block.
@@ -138,6 +163,29 @@ impl Drop for OverlayClient {
 }
 
 /// Next to our own executable first (Flatpak: /app/bin), then `$PATH`.
+/// Reads the overlay's event lines until it exits (its stdout closes).
+fn forward_events(out: std::process::ChildStdout, events: Events) {
+    use std::io::BufRead;
+    let spawned = std::thread::Builder::new()
+        .name("overlay-events".into())
+        .spawn(move || {
+            for line in std::io::BufReader::new(out).lines() {
+                let Ok(line) = line else { break };
+                match OverlayEvent::parse_line(&line) {
+                    Some(ev) => {
+                        if events.send(ev).is_err() {
+                            break;
+                        }
+                    }
+                    None => debug!("overlay: ignoring stdout line {line:?}"),
+                }
+            }
+        });
+    if let Err(e) = spawned {
+        warn!("overlay: cannot read its events: {e}");
+    }
+}
+
 fn find_binary() -> Option<PathBuf> {
     let sibling = std::env::current_exe()
         .ok()
@@ -184,6 +232,8 @@ struct Supervisor {
     started_at: Option<Instant>,
     /// Drawing in software (tiny-skia) after the GPU path kept crashing.
     software: bool,
+    events: Option<Events>,
+    running: Arc<AtomicBool>,
 }
 
 const LATE_RETRIES: u8 = 2;
@@ -213,6 +263,7 @@ impl Supervisor {
             }
             match rx.recv_timeout(POLL) {
                 Ok(Msg::Cmd(cmd)) => {
+                    let cmd = *cmd;
                     // Remember what a restarted child needs to catch up.
                     match &cmd {
                         OverlayCommand::Config(c) => self.config = c.clone(),
@@ -226,8 +277,10 @@ impl Supervisor {
                 Err(RecvTimeoutError::Timeout) => {}
             }
             self.reap();
+            self.running.store(self.stdin.is_some(), Ordering::SeqCst);
         }
         self.stop_child();
+        self.running.store(false, Ordering::SeqCst);
     }
 
     fn start(&mut self, binary: &PathBuf) {
@@ -250,13 +303,20 @@ impl Supervisor {
         }
         let spawned = cmd
             .stdin(Stdio::piped())
-            .stdout(Stdio::null())
+            .stdout(if self.events.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stderr(Stdio::inherit())
             .spawn();
         match spawned {
             Ok(mut child) => {
                 info!("overlay: started {} (pid {})", binary.display(), child.id());
                 self.stdin = child.stdin.take();
+                if let (Some(out), Some(events)) = (child.stdout.take(), self.events.clone()) {
+                    forward_events(out, events);
+                }
                 self.child = Some(child);
                 self.started_at = Some(Instant::now());
                 let replay = [
@@ -436,7 +496,7 @@ mod tests {
     #[test]
     fn exit_code_3_marks_unsupported() {
         let bin = script("unsupported", "exit 3");
-        let c = OverlayClient::spawn_with_binary(OverlayConfig::default(), Some(bin));
+        let c = OverlayClient::spawn_with_binary(OverlayConfig::default(), Some(bin), None);
         assert!(wait_for(|| c.unsupported()));
         // Calls after that are harmless no-ops.
         c.show("x");
@@ -464,6 +524,8 @@ mod tests {
             gave_up: false,
             started_at: None,
             software: false,
+            events: None,
+            running: Arc::new(AtomicBool::new(false)),
         };
         // The first run plus LATE_RETRIES retries, then no more.
         for _ in 0..=LATE_RETRIES {
@@ -483,7 +545,7 @@ mod tests {
     fn crash_loop_falls_back_to_notifications() {
         // E.g. no Vulkan: the overlay dies at once with a plain error.
         let bin = script("crashloop", "exit 1");
-        let c = OverlayClient::spawn_with_binary(OverlayConfig::default(), Some(bin));
+        let c = OverlayClient::spawn_with_binary(OverlayConfig::default(), Some(bin), None);
         let end = Instant::now() + Duration::from_secs(10);
         while !c.unsupported() && Instant::now() < end {
             std::thread::sleep(Duration::from_millis(20));
@@ -498,7 +560,7 @@ mod tests {
             "gpucrash",
             "[ \"$ICED_BACKEND\" = tiny-skia ] || exit 1; while read -r l; do :; done",
         );
-        let c = OverlayClient::spawn_with_binary(OverlayConfig::default(), Some(bin));
+        let c = OverlayClient::spawn_with_binary(OverlayConfig::default(), Some(bin), None);
         std::thread::sleep(Duration::from_secs(8));
         assert!(!c.unsupported());
         c.shutdown();
@@ -506,7 +568,7 @@ mod tests {
 
     #[test]
     fn missing_binary_marks_unsupported() {
-        let c = OverlayClient::spawn_with_binary(OverlayConfig::default(), None);
+        let c = OverlayClient::spawn_with_binary(OverlayConfig::default(), None, None);
         assert!(wait_for(|| c.unsupported()));
     }
 
@@ -525,7 +587,7 @@ mod tests {
             ),
         );
         let _ = std::fs::remove_file(format!("{}.crashed", out.display()));
-        let c = OverlayClient::spawn_with_binary(OverlayConfig::default(), Some(bin));
+        let c = OverlayClient::spawn_with_binary(OverlayConfig::default(), Some(bin), None);
         let state = OverlayState {
             name: "Pods".into(),
             connected: true,

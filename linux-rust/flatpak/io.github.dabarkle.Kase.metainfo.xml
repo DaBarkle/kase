@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.10.0" date="2026-11-01">
+      <description>
+        <p>Smoother, livelier visuals: battery numbers roll and rings fill one after another, charging rings come alive, tab pages slide, and a click on the tray icon opens a quick look with battery and noise control. A new Reduce motion setting follows your desktop.</p>
+      </description>
+    </release>
     <release version="0.9.6" date="2026-11-01">
       <description>
         <p>Pressing play in Plex brings the AirPods back from the iPhone even right after they reconnected, instead of hanging with no sound.</p>

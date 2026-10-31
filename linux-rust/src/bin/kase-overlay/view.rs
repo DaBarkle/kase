@@ -16,11 +16,13 @@ use crate::glyphs::*;
 use crate::island::{
     ALERT_ICON_X, ALERT_LEVEL_W, ALERT_TEXT_X, ALERT_TITLE_SIZE, ALERT_TRAIL_PAD, Alert, BREATHE,
     CASE, COMPACT_ITEM, COMPACT_LEAD, Content, GlowKind, HEADPHONE, LEFT, Level, Motion, Parts,
-    RIGHT, Tint, ease_out_back, shape, text_width,
+    REVEAL_DELAY, RIGHT, STAGGER, Tint, ease_out_back, reveal_at, shape, text_width,
 };
 use crate::logic::Controller;
 use crate::purist;
+use crate::quick::{self, Hit, Quick};
 use kase::overlay_protocol::{ComponentState, OverlayPosition, OverlayState, OverlayStyle};
+use kase::ui::widgets::draw_sheen;
 
 /// Transparent room around the island for its shadow.
 pub const PAD: f32 = 14.0;
@@ -109,8 +111,11 @@ struct Ctx<'a> {
     ink: f32,
     /// Seconds since this content started coming in (large for outgoing content).
     age: f32,
-    /// 0..1 ring sweep.
-    reveal: f32,
+    /// Seconds since the rings started sweeping in (`f32::MAX`: drawn settled, as for
+    /// content on its way out).
+    reveal_from: f32,
+    /// Where the light on charging rings is, if it runs.
+    sheen: Option<f32>,
     /// The island's current (unscaled) size.
     island: (f32, f32),
     /// Purist style: bundled Inter, and no halo under text (the body is solid black,
@@ -119,6 +124,19 @@ struct Ctx<'a> {
 }
 
 impl Ctx<'_> {
+    /// 0..1 sweep of the `i`th ring of this content.
+    fn reveal(&self, i: usize) -> f32 {
+        if self.motion.reduced {
+            1.0
+        } else {
+            reveal_at(self.reveal_from, i)
+        }
+    }
+
+    fn sheen(&self) -> Option<f32> {
+        self.sheen
+    }
+
     fn font(&self, w: Weight) -> Font {
         if self.purist {
             Font {
@@ -311,7 +329,8 @@ impl Island<'_> {
                         name: &name,
                         ink: ink * a,
                         age: f32::MAX,
-                        reveal: 1.0,
+                        reveal_from: f32::MAX,
+                        sheen: None,
                         island: (w, h),
                         purist,
                     };
@@ -326,10 +345,26 @@ impl Island<'_> {
                             name: &name,
                             ink: ink * a,
                             age: m.shown_age,
-                            reveal: m.reveal(),
+                            reveal_from: m.shown_age,
+                            sheen: if purist { m.sheen_phase() } else { None },
                             island: (w, h),
                             purist,
                         };
+                        if a < 0.97 && !m.reduced {
+                            // Content comes in out of focus: two faint ghosts either side
+                            // close in on it as it sharpens (canvas has no real blur).
+                            let spread = 3.5 * (1.0 - a);
+                            let ghost = Ctx {
+                                ink: ink * a * 0.35,
+                                ..ctx
+                            };
+                            for dx in [-spread, spread] {
+                                f.with_save(|f| {
+                                    f.translate(Vector::new(dx, 0.0));
+                                    paint_content(f, content, &ghost, position, &p, center, s * sc);
+                                });
+                            }
+                        }
                         paint_content(f, content, &ctx, position, &p, center, s * sc);
                     }
                 }
@@ -646,7 +681,7 @@ fn paint_compact(f: &mut Frame, _w: f32, h: f32, ctx: &Ctx) {
         let present = comp.is_some_and(|c| c.present);
         let dim = if present { 1.0 } else { 0.45 };
         let shown = comp.filter(|c| c.present || c.stale);
-        let label_c = white(0.55 * ctx.ink * dim);
+        let label_c = white(0.55 * ctx.ink * dim * ear_dim(comp));
         if shown.is_some_and(|c| c.charging && c.present) {
             draw_bolt(f, Point::new(x + 4.0, cy), 0.8, with_alpha(GREEN, ctx.ink));
         } else {
@@ -764,8 +799,18 @@ fn paint_expanded(f: &mut Frame, w: f32, ctx: &Ctx) {
             slot,
             &ctx.motion.levels[idx],
             Point::new(INSET + i as f32 * seg_w, row_y),
+            i,
             ctx,
         );
+    }
+}
+
+/// L / R labels dim while that pod is out of the ear.
+fn ear_dim(comp: Option<&ComponentState>) -> f32 {
+    if comp.is_some_and(|c| c.out_of_ear) {
+        0.4
+    } else {
+        1.0
     }
 }
 
@@ -775,6 +820,7 @@ fn draw_segment(
     slot: Slot,
     level: &Level,
     origin: Point,
+    index: usize,
     ctx: &Ctx,
 ) {
     const R: f32 = 15.5;
@@ -801,7 +847,7 @@ fn draw_segment(
     );
     let shown = comp.filter(|c| c.present || c.stale);
     let accent = shown.map(level_color).unwrap_or(white(0.92));
-    let frac = level.fill.value.clamp(0.0, 1.0) * ctx.reveal;
+    let frac = level.fill.value.clamp(0.0, 1.0) * ctx.reveal(index);
     if shown.is_some() && frac > 0.001 {
         let start = -PI / 2.0;
         let arc = Path::new(|b| {
@@ -821,10 +867,16 @@ fn draw_segment(
                     .with_color(with_alpha(accent, alpha * dim))
             },
         );
+        if let Some(phase) = ctx
+            .sheen()
+            .filter(|_| shown.is_some_and(|c| c.charging && c.present))
+        {
+            draw_sheen(f, center, R, frac, phase, RING_W, 0.5 * alpha);
+        }
     }
 
     // Inner label: L / R / case glyph, or a bolt while charging.
-    let label_color = white(0.78 * alpha * dim);
+    let label_color = white(0.78 * alpha * dim * ear_dim(comp));
     if shown.is_some_and(|c| c.charging && c.present) {
         let pop = 0.6 + 0.4 * ease_out_back((ctx.age - 0.15) / 0.45);
         draw_bolt(f, center, pop, with_alpha(GREEN, alpha));
@@ -975,7 +1027,7 @@ fn paint_alert(f: &mut Frame, alert: &Alert, w: f32, h: f32, ctx: &Ctx) {
             .collect();
         let n = items.len() as f32;
         let mut x = w - ALERT_TRAIL_PAD - n * ALERT_LEVEL_W + 4.0;
-        for (idx, comp, slot) in items {
+        for (i, (idx, comp, slot)) in items.into_iter().enumerate() {
             draw_alert_level(
                 f,
                 comp,
@@ -983,6 +1035,7 @@ fn paint_alert(f: &mut Frame, alert: &Alert, w: f32, h: f32, ctx: &Ctx) {
                 &ctx.motion.levels[idx],
                 Point::new(x, cy),
                 alert,
+                i,
                 ctx,
             );
             x += ALERT_LEVEL_W;
@@ -1012,6 +1065,7 @@ fn lowest(state: &OverlayState, parts: Parts) -> Option<&ComponentState> {
 }
 
 /// A small ring with L / R / case inside, then the percentage.
+#[allow(clippy::too_many_arguments)]
 fn draw_alert_level(
     f: &mut Frame,
     comp: Option<&ComponentState>,
@@ -1019,6 +1073,7 @@ fn draw_alert_level(
     level: &Level,
     left_center: Point,
     alert: &Alert,
+    index: usize,
     ctx: &Ctx,
 ) {
     const R: f32 = 10.0;
@@ -1036,7 +1091,7 @@ fn draw_alert_level(
             .with_width(2.6)
             .with_color(white(0.14 * ink)),
     );
-    let frac = level.fill.value.clamp(0.0, 1.0) * ctx.reveal;
+    let frac = level.fill.value.clamp(0.0, 1.0) * ctx.reveal(index);
     if frac > 0.001 {
         let start = -PI / 2.0;
         let arc = Path::new(|b| {
@@ -1056,8 +1111,23 @@ fn draw_alert_level(
                     .with_color(with_alpha(accent, ink * breath))
             },
         );
+        if let Some(phase) = ctx.sheen().filter(|_| matches!(alert, Alert::Charging(_))) {
+            draw_sheen(f, center, R, frac, phase, 2.6, 0.5 * ink);
+        }
     }
-    let inner = white(0.8 * ink);
+    if matches!(alert, Alert::Charging(_)) && ctx.age < f32::MAX && !ctx.motion.reduced {
+        // One green ripple leaves the ring as the alert opens.
+        let t = ((ctx.age - REVEAL_DELAY - index as f32 * STAGGER) / 0.8).clamp(0.0, 1.0);
+        if t > 0.0 && t < 1.0 {
+            f.stroke(
+                &Path::circle(center, R + 2.0 + 7.0 * t),
+                Stroke::default()
+                    .with_width(1.6 * (1.0 - t) + 0.4)
+                    .with_color(with_alpha(GREEN, 0.6 * (1.0 - t) * ink)),
+            );
+        }
+    }
+    let inner = white(0.8 * ink * ear_dim(comp));
     match slot {
         Slot::Letter(l) => ctx.text(
             f,
@@ -1078,6 +1148,230 @@ fn draw_alert_level(
         with_alpha(accent, ink),
         TextAlign::Left,
     );
+}
+
+// --- Tray quick look --------------------------------------------------------------
+
+/// The tray quick look card ([`crate::quick`]), drawn on its own surface.
+pub struct QuickView<'a> {
+    pub ctl: &'a Controller,
+    pub quick: &'a Quick,
+    pub now: Instant,
+}
+
+impl QuickView<'_> {
+    /// Card coordinates of the cursor, and whether it is on the card.
+    fn at(&self, bounds: Rectangle, cursor: mouse::Cursor) -> Option<(f32, f32)> {
+        cursor
+            .position_in(bounds)
+            .map(|p| (p.x - quick::PAD, p.y - quick::PAD))
+    }
+}
+
+impl canvas::Program<crate::Message> for QuickView<'_> {
+    type State = ();
+
+    fn update(
+        &self,
+        _state: &mut (),
+        event: &iced::Event,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> Option<canvas::Action<crate::Message>> {
+        let state = self.ctl.display_state(self.now)?;
+        let hit = self
+            .at(bounds, cursor)
+            .and_then(|(x, y)| quick::hit(&state, x, y));
+        match event {
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. })
+            | iced::Event::Mouse(mouse::Event::CursorEntered) => Some(canvas::Action::publish(
+                crate::Message::QuickPointer(hit, true),
+            )),
+            iced::Event::Mouse(mouse::Event::CursorLeft) => Some(canvas::Action::publish(
+                crate::Message::QuickPointer(None, false),
+            )),
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                hit.map(|h| canvas::Action::publish(crate::Message::QuickTap(h)).and_capture())
+            }
+            _ => None,
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        _state: &(),
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> mouse::Interaction {
+        let state = self.ctl.display_state(self.now);
+        match (state, self.at(bounds, cursor)) {
+            (Some(s), Some((x, y))) if quick::hit(&s, x, y).is_some() => {
+                mouse::Interaction::Pointer
+            }
+            _ => mouse::Interaction::default(),
+        }
+    }
+
+    fn draw(
+        &self,
+        _state: &(),
+        renderer: &Renderer,
+        _theme: &Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        if let Some(state) = self.ctl.display_state(self.now) {
+            self.paint(&mut frame, &state);
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
+impl QuickView<'_> {
+    fn paint(&self, f: &mut Frame, state: &OverlayState) {
+        use quick::{INSET, PAD, ROW_H, W};
+        let q = self.quick;
+        let (scale, ink) = q.presence();
+        if ink <= 0.0 {
+            return;
+        }
+        let (w, h) = quick::size(state);
+        // It springs out of the corner nearest the tray.
+        let px = if matches!(
+            q.corner,
+            OverlayPosition::TopLeft | OverlayPosition::BottomLeft
+        ) {
+            PAD
+        } else {
+            PAD + w
+        };
+        let py = if q.corner.is_top() { PAD } else { PAD + h };
+        f.translate(Vector::new(px, py));
+        f.scale(scale);
+        f.translate(Vector::new(PAD - px, PAD - py));
+        let card = Path::rounded_rectangle(Point::ORIGIN, Size::new(w, h), Radius::from(26.0));
+        f.fill(&card, Color::from_rgba(0.0, 0.0, 0.0, ink));
+        f.stroke(
+            &card,
+            Stroke::default()
+                .with_width(1.0)
+                .with_color(white(KEY_ALPHA * ink)),
+        );
+
+        let name = self.ctl.name(self.now);
+        let ctx = Ctx {
+            state,
+            motion: &self.ctl.motion,
+            name: &name,
+            ink,
+            age: q.age,
+            reveal_from: q.age,
+            sheen: None,
+            island: (w, h),
+            purist: true,
+        };
+        // Header: mark, name, and what the AirPods are doing.
+        let glyph = white(0.92 * ink);
+        if state.headphone.is_some() {
+            draw_headphone_glyph(f, Point::new(INSET + 16.0, 30.0), 1.15, glyph);
+        } else {
+            draw_app_glyph(f, Point::new(INSET + 16.0, 30.0), 1.4, glyph);
+        }
+        let max_w = W - INSET * 2.0 - 40.0;
+        ctx.text(
+            f,
+            label(
+                truncate(&name, max_w, 15.0),
+                Point::new(INSET + 40.0, 22.0),
+                15.0,
+                white(0.97 * ink),
+                ctx.font(Weight::Semibold),
+            ),
+        );
+        let caption = self.ctl.headline(self.now);
+        ctx.text(
+            f,
+            label(
+                truncate(&caption, max_w, 12.0),
+                Point::new(INSET + 40.0, 40.0),
+                12.0,
+                white(0.58 * ink),
+                ctx.font(Weight::Medium),
+            ),
+        );
+
+        let slots = slots(state);
+        let seg_w = (W - 2.0 * INSET) / slots.len() as f32;
+        for (i, (idx, comp, slot)) in slots.into_iter().enumerate() {
+            draw_segment(
+                f,
+                comp,
+                slot,
+                &self.ctl.motion.levels[idx],
+                Point::new(INSET + i as f32 * seg_w, quick::RINGS_Y),
+                i,
+                &ctx,
+            );
+        }
+
+        let row = |f: &mut Frame, x: f32, y: f32, w: f32, r: f32, a: f32| {
+            f.fill(
+                &Path::rounded_rectangle(Point::new(x, y), Size::new(w, ROW_H), Radius::from(r)),
+                white(a * ink),
+            );
+        };
+        let n = state.modes.len();
+        if n > 0 {
+            let y = quick::MODES_Y;
+            let seg = (W - 2.0 * INSET) / n as f32;
+            row(f, INSET, y, W - 2.0 * INSET, 10.0, 0.08);
+            if let Some(Hit::Mode(i)) = q.hover {
+                row(
+                    f,
+                    INSET + i as f32 * seg + 2.0,
+                    y + 2.0,
+                    seg - 4.0,
+                    8.0,
+                    0.05,
+                );
+            }
+            let sel = q.selected.value;
+            if sel >= 0.0 {
+                row(f, INSET + sel * seg + 2.0, y + 2.0, seg - 4.0, 8.0, 0.16);
+            }
+            for (i, m) in state.modes.iter().enumerate() {
+                let on = (sel - i as f32).abs() < 0.5;
+                draw_listening_glyph(
+                    f,
+                    Point::new(INSET + (i as f32 + 0.5) * seg, y + ROW_H / 2.0),
+                    0.8,
+                    *m,
+                    white(if on { 0.95 } else { 0.55 } * ink),
+                );
+            }
+        }
+        let by = quick::button_y(state);
+        let lit = if q.hover == Some(Hit::Open) {
+            0.18
+        } else {
+            0.12
+        };
+        row(f, INSET, by, W - 2.0 * INSET, ROW_H / 2.0, lit);
+        ctx.text(
+            f,
+            canvas::Text {
+                align_x: TextAlign::Center,
+                ..label(
+                    "Open Kase".into(),
+                    Point::new(W / 2.0, by + ROW_H / 2.0),
+                    13.0,
+                    white(0.92 * ink),
+                    ctx.font(Weight::Semibold),
+                )
+            },
+        );
+    }
 }
 
 #[cfg(test)]

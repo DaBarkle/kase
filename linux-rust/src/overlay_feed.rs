@@ -2,18 +2,23 @@
 //! has no layer-shell (GNOME). The overlay is a separate process drawing its own compositor
 //! surface; nothing here ever touches game processes.
 
+use crate::bluetooth::aacp::ControlCommandIdentifiers;
 use crate::core::battery::ComponentBattery;
+use crate::devices::airpods::CommandSender;
 use crate::hub::MicRoute;
 use crate::hub::{AppSnapshot, DeviceSnapshot, Hub, LinkState};
 use crate::overlay_client::OverlayClient;
 use crate::overlay_protocol::{
-    ComponentState, ListeningMode, MicChoice, OverlayMode, OverlayState,
+    ComponentState, ListeningMode, MicChoice, OverlayEvent, OverlayMode, OverlayPosition,
+    OverlayState,
 };
 use crate::ui::format::LOW_THRESHOLD;
+use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::settings::SettingsStore;
 use log::{debug, info};
 use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
+use tokio::sync::mpsc::UnboundedSender;
 
 static CLIENT: OnceLock<Arc<OverlayClient>> = OnceLock::new();
 
@@ -47,11 +52,58 @@ pub fn set_fullscreen(active: bool) {
     }
 }
 
-pub fn spawn(hub: Hub, settings: SettingsStore) {
+static QUICK_LOOK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The tray icon was clicked: open (or close) the quick look in `corner`. False when it
+/// can't be shown here (switched off, or no layer-shell), so the caller opens the window.
+pub fn quick_look(corner: OverlayPosition) -> bool {
+    match CLIENT.get() {
+        Some(c)
+            if QUICK_LOOK.load(std::sync::atomic::Ordering::Relaxed)
+                && c.running()
+                && !c.unsupported() =>
+        {
+            c.quick_look(corner);
+            true
+        }
+        _ => false,
+    }
+}
+
+pub fn spawn(
+    hub: Hub,
+    settings: SettingsStore,
+    ui_tx: UnboundedSender<BluetoothUIMessage>,
+    commands: Arc<tokio::sync::Mutex<Option<CommandSender>>>,
+) {
+    let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
     let client = CLIENT
-        .get_or_init(|| Arc::new(OverlayClient::spawn(settings.get().overlay_config())))
+        .get_or_init(|| {
+            Arc::new(OverlayClient::spawn(
+                settings.get().overlay_config(),
+                Some(events_tx),
+            ))
+        })
         .clone();
     tokio::spawn(run(hub, settings, client));
+    // Taps on the quick look.
+    tokio::spawn(async move {
+        while let Some(ev) = events.recv().await {
+            match ev {
+                OverlayEvent::OpenWindow => {
+                    let _ = ui_tx.send(BluetoothUIMessage::OpenWindow);
+                }
+                OverlayEvent::SetListeningMode { mode } => {
+                    let cmd = (ControlCommandIdentifiers::ListeningMode, vec![mode.byte()]);
+                    if let Some(tx) = commands.lock().await.as_ref()
+                        && tx.send(cmd).is_err()
+                    {
+                        debug!("Control channel closed; quick look command dropped");
+                    }
+                }
+            }
+        }
+    });
 }
 
 async fn run(hub: Hub, settings: SettingsStore, client: Arc<OverlayClient>) {
@@ -62,7 +114,9 @@ async fn run(hub: Hub, settings: SettingsStore, client: Arc<OverlayClient>) {
     let mut notifier = Notifier::default();
     loop {
         // Settings changed in the window (also while a slider is dragged).
-        let now = settings_rx.borrow_and_update().overlay_config();
+        let s = settings_rx.borrow_and_update().clone();
+        QUICK_LOOK.store(s.tray_quick_look, std::sync::atomic::Ordering::Relaxed);
+        let now = s.overlay_config();
         if now != config {
             config = now;
             client.set_config(config.clone());
@@ -103,6 +157,7 @@ pub fn to_overlay_state(snap: &AppSnapshot) -> Option<OverlayState> {
         return None;
     }
     let now = SystemTime::now();
+    let out = |e: Option<bool>| d.is_connected() && e == Some(false);
     let comp = |c: &ComponentBattery| -> Option<ComponentState> {
         let level = c.level?;
         Some(ComponentState {
@@ -115,6 +170,7 @@ pub fn to_overlay_state(snap: &AppSnapshot) -> Option<OverlayState> {
                 .then(|| c.last_seen.and_then(|t| now.duration_since(t).ok()))
                 .flatten()
                 .map(|age| age.as_secs()),
+            out_of_ear: false,
         })
     };
     let info = d.model.info();
@@ -126,8 +182,14 @@ pub fn to_overlay_state(snap: &AppSnapshot) -> Option<OverlayState> {
         name: display_name(d),
         kind,
         connected: d.is_connected(),
-        left: comp(&d.battery.left),
-        right: comp(&d.battery.right),
+        left: comp(&d.battery.left).map(|c| ComponentState {
+            out_of_ear: out(d.in_ear.0),
+            ..c
+        }),
+        right: comp(&d.battery.right).map(|c| ComponentState {
+            out_of_ear: out(d.in_ear.1),
+            ..c
+        }),
         case: if info.has_case_battery {
             comp(&d.battery.case)
         } else {
@@ -154,6 +216,10 @@ pub fn to_overlay_state(snap: &AppSnapshot) -> Option<OverlayState> {
         }),
         mic_failures: d.mic_failures,
         in_case: d.is_connected() && d.in_case,
+        modes: crate::ui::format::listening_modes(d)
+            .iter()
+            .filter_map(|m| ListeningMode::from_byte(m.byte()))
+            .collect(),
     })
 }
 

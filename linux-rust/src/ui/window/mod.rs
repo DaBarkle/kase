@@ -15,7 +15,7 @@ use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::motion::{self, Motion};
 use crate::ui::settings::{
     Appearance, OVERLAY_POSITIONS, OverlayMode, OverlayPosition, OverlaySize, OverlayStyle,
-    Settings, SettingsStore,
+    ReduceMotion, Settings, SettingsStore,
 };
 use crate::ui::style::{self, Tokens};
 use crate::ui::widgets::{self, Glyph, Ink};
@@ -199,6 +199,11 @@ pub enum Message {
     AppleDone(Result<bool, crate::apple_mode::Failure>),
     CopyCommand(crate::apple_mode::Setting),
     TakeAudio,
+    Key(iced::keyboard::Key, iced::keyboard::Modifiers),
+    SetReduceMotion(ReduceMotion),
+    SetTrayQuickLook(bool),
+    /// The desktop's reduce motion setting was read.
+    SystemMotion(bool),
     Ignore,
 }
 
@@ -236,6 +241,7 @@ enum Anim {
     /// Listening mode highlight position (index among the offered modes).
     Mode,
     Appearance,
+    ReduceMotion,
     OverlayMode,
     OverlayStyle,
     OverlaySize,
@@ -243,9 +249,31 @@ enum Anim {
     Control(u8),
     /// Battery ring fill, by gauge index.
     Ring(usize),
+    /// Charging bolt scale, by gauge index.
+    Bolt(usize),
+    /// The ripple that leaves a ring when charging starts, by gauge index.
+    Ripple(usize),
     /// Status island edge light.
     Glow,
+    /// Status island width, following its text.
+    PillWidth,
+    /// 0..1 cross-fade from the previous status text and colour to the current one.
+    PillFade,
+    /// Page entrance after a tab switch: 1 = just switched, 0 = settled.
+    Page,
 }
+
+/// The page slides in from this far, in the direction of the new tab.
+const PAGE_SLIDE: f32 = 30.0;
+/// The page's slide: gentle, a touch of overshoot.
+const PAGE: motion::Curve = motion::Curve {
+    response: 0.42,
+    damping: 0.86,
+};
+/// Rings fill one after another on connect, this far apart.
+const RING_STAGGER: Duration = Duration::from_millis(80);
+/// One trip of the light round a charging ring (under Apple's two seconds).
+const SHEEN_LOOP: f32 = 1.8;
 
 /// Where the Apple device mode switch is in its flow.
 #[derive(Debug, Clone, PartialEq)]
@@ -283,6 +311,15 @@ pub struct App {
     clock: Instant,
     /// Last status island text and tone, to pulse its glow when it changes.
     last_status: Option<(String, StatusTone)>,
+    /// The status shown before the current one, while the island cross-fades from it.
+    prev_status: Option<format::Status>,
+    shown_status: Option<format::Status>,
+    /// Which way the last tab switch went (-1 left, 1 right), for the page slide.
+    page_dir: f32,
+    /// Charging per gauge as last seen, to ripple when charging starts.
+    last_charging: Vec<bool>,
+    /// The tabs were last moved with the keyboard: show where the focus is.
+    key_focus: bool,
     pending_mode: Option<(u8, Instant)>,
     pending_ca: Option<(bool, Instant)>,
     /// "Use on this PC" was pressed; shows "Switching…" until the AirPods answer.
@@ -347,6 +384,11 @@ impl App {
             motion: Motion::default(),
             clock: Instant::now(),
             last_status: None,
+            prev_status: None,
+            shown_status: None,
+            page_dir: 1.0,
+            last_charging: Vec::new(),
+            key_focus: false,
             pending_mode: None,
             pending_ca: None,
             taking_audio: None,
@@ -511,7 +553,10 @@ impl App {
     fn sync_motion(&mut self) {
         let now = self.clock;
         let mode = self.snap.primary().and_then(|d| self.mode_index(d));
+        let reduced = self.settings.reduces_motion();
+        motion::set_reduced_ui(reduced);
         let m = &mut self.motion;
+        m.reduced = reduced;
         let tab = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0);
         m.target(Anim::Tab, tab as f32, None, motion::SNAPPY, now);
         let s = &self.settings;
@@ -530,6 +575,16 @@ impl App {
             [Appearance::System, Appearance::Light, Appearance::Dark]
                 .iter()
                 .position(|a| *a == self.settings.appearance)
+                .unwrap_or(0) as f32,
+            None,
+            motion::SNAPPY,
+            now,
+        );
+        m.target(
+            Anim::ReduceMotion,
+            [ReduceMotion::System, ReduceMotion::On, ReduceMotion::Off]
+                .iter()
+                .position(|r| *r == self.settings.reduce_motion)
                 .unwrap_or(0) as f32,
             None,
             motion::SNAPPY,
@@ -564,23 +619,132 @@ impl App {
                 m.target(Anim::Control(id), i as f32, None, motion::SNAPPY, now);
             }
         }
-        // Rings sweep in from empty the first time they are seen (window opened).
-        for (i, g) in format::gauges(d, self.now).iter().enumerate() {
+        // Rings sweep in from empty, one after another, the first time they are seen
+        // (window opened, AirPods connected); the numbers count up with them.
+        let gauges = format::gauges(d, self.now);
+        for (i, g) in gauges.iter().enumerate() {
             let f = g.level.map_or(0.0, |l| l.min(100) as f32 / 100.0);
-            m.target(Anim::Ring(i), f, Some(0.0), motion::SMOOTH, now);
+            let delay = RING_STAGGER * i as u32;
+            m.target_after(Anim::Ring(i), f, Some(0.0), motion::SMOOTH, now, delay);
+            let bolt = if g.charging { 1.0 } else { 0.0 };
+            m.target_after(Anim::Bolt(i), bolt, Some(0.0), motion::POP, now, delay);
+            if g.charging && self.last_charging.get(i) == Some(&false) {
+                m.forget(Anim::Ripple(i));
+                m.target(Anim::Ripple(i), 1.0, Some(0.0), motion::SMOOTH, now);
+            }
         }
+        self.last_charging = gauges.iter().map(|g| g.charging).collect();
         let status = format::status(d, self.now);
+        m.target(
+            Anim::PillWidth,
+            pill_width(&status),
+            None,
+            motion::SNAPPY,
+            now,
+        );
         let lit = if status.tone == StatusTone::Idle {
             0.0
         } else {
             1.0
         };
         m.target(Anim::Glow, lit, Some(0.0), motion::SMOOTH, now);
-        let key = (status.headline, status.tone);
-        if self.last_status.as_ref().is_some_and(|k| *k != key) && lit > 0.0 {
-            m.kick(Anim::Glow, 2.4, now);
+        let key = (status.headline.clone(), status.tone);
+        if self.last_status.as_ref().is_some_and(|k| *k != key) {
+            if lit > 0.0 && !m.reduced {
+                m.kick(Anim::Glow, 2.4, now);
+            }
+            // Cross-fade from what the island said a moment ago.
+            m.forget(Anim::PillFade);
+            m.target(Anim::PillFade, 1.0, Some(0.0), motion::FADE, now);
+            self.prev_status = self.shown_status.replace(status.clone());
+        } else if self.last_status.is_none() {
+            self.prev_status = None;
         }
+        self.shown_status = Some(status);
         self.last_status = Some(key);
+    }
+
+    fn select_tab(&mut self, tab: Tab) -> Task<Message> {
+        if tab == self.tab {
+            return Task::none();
+        }
+        let index = |t: Tab| Tab::ALL.iter().position(|x| *x == t).unwrap_or(0) as f32;
+        self.page_dir = (index(tab) - index(self.tab)).signum();
+        self.tab = tab;
+        // The new page comes in from the side the tab is on.
+        let curve = if self.motion.reduced {
+            motion::FADE
+        } else {
+            PAGE
+        };
+        self.motion.forget(Anim::Page);
+        self.motion
+            .target(Anim::Page, 0.0, Some(1.0), curve, self.clock);
+        self.apple_copied = None;
+        if !matches!(self.apple_flow, AppleFlow::Working(_)) {
+            self.apple_flow = AppleFlow::Idle;
+        }
+        if tab == Tab::Settings && !self.demo {
+            Task::batch([
+                load_apple_mode(),
+                Task::perform(crate::diagnostics::collect(), Message::Diagnostics),
+            ])
+        } else {
+            Task::none()
+        }
+    }
+
+    /// Ctrl+Tab / Ctrl+Shift+Tab (and Ctrl+PageDown / PageUp) move between the tabs, with a
+    /// focus ring on the tab bar until the mouse is used again.
+    fn on_key(
+        &mut self,
+        key: iced::keyboard::Key,
+        mods: iced::keyboard::Modifiers,
+    ) -> Task<Message> {
+        use iced::keyboard::{Key, key::Named};
+        let step = match key.as_ref() {
+            Key::Named(Named::Tab) if mods.control() => {
+                if mods.shift() {
+                    -1
+                } else {
+                    1
+                }
+            }
+            Key::Named(Named::PageDown) if mods.control() => 1,
+            Key::Named(Named::PageUp) if mods.control() => -1,
+            _ => return Task::none(),
+        };
+        let at = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0) as i32;
+        let next = Tab::ALL[(at + step).rem_euclid(Tab::ALL.len() as i32) as usize];
+        self.key_focus = true;
+        self.select_tab(next)
+    }
+
+    /// Ring and number animation for gauge `i` (see [`widgets::GaugeMotion`]).
+    fn gauge_motion(&self, i: usize, g: &format::Gauge) -> widgets::GaugeMotion {
+        let fill = g.level.map(|l| l.min(100) as f32 / 100.0);
+        widgets::GaugeMotion {
+            fill: fill.map(|f| self.anim(Anim::Ring(i), f).max(0.0)),
+            bolt: self.anim(Anim::Bolt(i), if g.charging { 1.0 } else { 0.0 }),
+            ripple: self.anim(Anim::Ripple(i), 1.0),
+            sheen: (g.charging && self.sheen_running()).then(|| {
+                let t = self
+                    .clock
+                    .saturating_duration_since(self.started)
+                    .as_secs_f32();
+                (t / SHEEN_LOOP).fract()
+            }),
+        }
+    }
+
+    /// The light runs round charging rings only while someone can see them.
+    fn sheen_running(&self) -> bool {
+        self.window.is_some()
+            && self.tab == Tab::AirPods
+            && !self.motion.reduced
+            && self
+                .primary()
+                .is_some_and(|d| format::gauges(d, self.now).iter().any(|g| g.charging))
     }
 
     /// Position of the current (or just requested) listening mode among those offered.
@@ -598,7 +762,14 @@ impl App {
     fn handle(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Hub(snap) => {
+                let was = self.primary().is_some_and(|d| d.is_connected());
                 self.snap = snap;
+                if !was && self.primary().is_some_and(|d| d.is_connected()) {
+                    // Just connected: fill the rings in again.
+                    for i in 0..4 {
+                        self.motion.forget(Anim::Ring(i));
+                    }
+                }
                 self.now = SystemTime::now();
                 self.expire_pending();
                 Task::none()
@@ -609,7 +780,12 @@ impl App {
                 // Let the rings and glow play in again.
                 self.motion.reset();
                 self.last_status = None;
-                Task::none()
+                self.last_charging.clear();
+                if self.demo {
+                    Task::none()
+                } else {
+                    Task::perform(motion::probe_system(), Message::SystemMotion)
+                }
             }
             Message::Frame(_) => Task::none(),
             Message::WindowClosed(id) => {
@@ -708,22 +884,16 @@ impl App {
                 Task::none()
             }
             Message::SelectTab(tab) => {
-                if tab == self.tab {
-                    return Task::none();
-                }
-                self.tab = tab;
-                self.apple_copied = None;
-                if !matches!(self.apple_flow, AppleFlow::Working(_)) {
-                    self.apple_flow = AppleFlow::Idle;
-                }
-                if tab == Tab::Settings && !self.demo {
-                    Task::batch([
-                        load_apple_mode(),
-                        Task::perform(crate::diagnostics::collect(), Message::Diagnostics),
-                    ])
-                } else {
-                    Task::none()
-                }
+                self.key_focus = false;
+                self.select_tab(tab)
+            }
+            Message::Key(key, mods) => self.on_key(key, mods),
+            Message::SetReduceMotion(r) => self.save_settings(|s| s.reduce_motion = r),
+            Message::SetTrayQuickLook(on) => self.save_settings(|s| s.tray_quick_look = on),
+            Message::SystemMotion(_) => {
+                // Settings follow the desktop: tell the island too.
+                self.store.touch();
+                Task::none()
             }
             Message::AppleMode(on) => {
                 self.apple_mode = on;
@@ -881,7 +1051,15 @@ impl App {
             window::close_events().map(Message::WindowClosed),
             iced::system::theme_changes().map(Message::SystemTheme),
             iced::time::every(Duration::from_secs(20)).map(|_| Message::Tick),
-            if self.window.is_some() && self.motion.is_animating(self.clock) {
+            iced::keyboard::listen().filter_map(|e| match e {
+                iced::keyboard::Event::KeyPressed { key, modifiers, .. } => {
+                    Some(Message::Key(key, modifiers))
+                }
+                _ => None,
+            }),
+            if self.window.is_some()
+                && (self.motion.is_animating(self.clock) || self.sheen_running())
+            {
                 window::frames().map(Message::Frame)
             } else {
                 Subscription::none()
@@ -916,6 +1094,14 @@ impl App {
             Tab::Island => self.island_tab(),
             Tab::Settings => self.settings_tab(),
         };
+        // After a tab switch the page slides in from the tab's side and fades up.
+        let entering = self.anim(Anim::Page, 0.0).max(0.0);
+        let slide = if self.motion.reduced { 0.0 } else { PAGE_SLIDE };
+        let page = widgets::moved(
+            page,
+            iced::Vector::new(self.page_dir * slide * entering, 0.0),
+            entering,
+        );
         let body = scrollable(container(page).padding(Padding {
             top: 12.0,
             bottom: 24.0,
@@ -945,7 +1131,7 @@ impl App {
     fn tabs(&self) -> Element<'_, Message> {
         let options: Vec<(&str, Tab)> = Tab::ALL.iter().map(|t| (t.label(), *t)).collect();
         let at = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0);
-        container(slide_control(
+        let bar = container(slide_control(
             &options,
             self.tab,
             Some(self.anim(Anim::Tab, at as f32)),
@@ -953,8 +1139,14 @@ impl App {
             Message::SelectTab,
             Shape::TABS,
         ))
-        .width(Length::Fixed(276.0))
-        .into()
+        .width(Length::Fixed(276.0));
+        // Keyboard focus: a ring round the tab bar after Ctrl+Tab.
+        let ring = if self.key_focus {
+            style::focus_ring
+        } else {
+            |_: &Theme| container::Style::default()
+        };
+        container(bar).padding(3).style(ring).into()
     }
 }
 
@@ -1021,3 +1213,4 @@ mod page_island;
 mod page_settings;
 
 use controls::*;
+use page_airpods::pill_width;
