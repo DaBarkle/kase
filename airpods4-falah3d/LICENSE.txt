@@ -1,0 +1,11 @@
+Title:   AirPods 4
+Author:  Falah3D (https://sketchfab.com/3dFalah)
+Source:  https://sketchfab.com/3d-models/airpods-4-e44730974131402eb496352cab19c82e
+License: CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+         Author must be credited. Commercial use is allowed.
+
+Credit line (copy wherever this model or renders of it are shared):
+This work is based on "AirPods 4" (https://sketchfab.com/3d-models/airpods-4-e44730974131402eb496352cab19c82e) by Falah3D (https://sketchfab.com/3dFalah) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+Files are unmodified from the Sketchfab glTF download (scene.gltf + scene.bin + textures/).
+The original license.txt (renamed license-sketchfab.txt) from the download is kept alongside.
