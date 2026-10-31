@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.9.5" date="2026-11-01">
+      <description>
+        <p>After a call or ring on the iPhone ends, the AirPods come back to the PC by themselves instead of leaving game and Discord audio silent.</p>
+      </description>
+    </release>
     <release version="0.9.4" date="2026-10-31">
       <description>
         <p>Pressing play on the PC takes the AirPods back from the iPhone even when they connected while the iPhone had them, instead of leaving Discord, videos and Plex silent.</p>

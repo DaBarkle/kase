@@ -309,6 +309,8 @@ pub enum AACPEvent {
     OwnershipToFalseRequest,
     /// Another device on the AirPods says whether it is streaming media right now.
     PeerStreaming(bool),
+    /// Another device on the AirPods reports it is idle: no call, nothing playing.
+    PeerIdle,
     StemPress(StemPressType, StemPressBudType),
 }
 

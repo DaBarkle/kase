@@ -429,6 +429,15 @@ pub(super) async fn handle_event(
                 media.lock().await.pause_all_media().await;
             }
         }
+        // The other device's call or ring ended without an Audio Source saying so: without
+        // this the PC waits for a call that is already over (audio stuck on the iPhone).
+        AACPEvent::PeerIdle if owns_audio(&ctx.hub, &mac_s) == Some(false) => {
+            if std::mem::take(&mut route.lock().call) {
+                info!("The other device is idle again; its call is over");
+            }
+            route.peer_quiet();
+        }
+        AACPEvent::PeerIdle => {}
         AACPEvent::OwnershipToFalseRequest if route.just_claimed() => {
             debug!("Ignoring a release request right after taking the AirPods");
         }

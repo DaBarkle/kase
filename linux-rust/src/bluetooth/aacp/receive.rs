@@ -302,6 +302,11 @@ impl AACPManager {
                         let _ = tx.send(AACPEvent::PeerStreaming(streaming));
                     }
                 }
+                if peer_idle(&packet_string)
+                    && let Some(ref tx) = self.state.lock().await.event_tx
+                {
+                    let _ = tx.send(AACPEvent::PeerIdle);
+                }
                 if packet_string.contains("SetOwnershipToFalse") {
                     info!("Received OwnershipToFalse request");
                     if let Some(ref tx) = self.state.lock().await.event_tx {
