@@ -40,6 +40,7 @@ use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 use iced_layershell::to_layer_message;
 use log::{debug, info, warn};
 
+use island::Content;
 use kase::overlay_protocol::{
     EXIT_UNSUPPORTED, OverlayCommand, OverlayConfig, OverlayEvent, OverlayMode, OverlayPosition,
     OverlaySize, OverlayState, OverlayStyle,
@@ -111,6 +112,8 @@ struct Overlay {
     quick_tick: Option<Instant>,
     /// The quick look's springs still move (frames needed).
     quick_moving: bool,
+    /// The case-open animation on the case card.
+    art: kase::ui::anim::Art,
 }
 
 struct DemoState {
@@ -174,6 +177,7 @@ impl Overlay {
             quick: None,
             quick_tick: None,
             quick_moving: false,
+            art: Default::default(),
         };
         let task = if me.demo.is_some() {
             let demo = me.demo_apply();
@@ -329,13 +333,29 @@ impl Overlay {
             }
             SurfaceAction::None => {}
         }
+        self.sync_art(now);
         tasks.push(self.schedule_wake(now));
         Task::batch(tasks)
     }
 
+    /// The case card plays the case-open animation each time it opens with it.
+    fn sync_art(&mut self, now: Instant) {
+        let want = self.window.is_some()
+            && self.ctl.motion.shown == Some(Content::Expanded)
+            && self
+                .ctl
+                .display_state(now)
+                .is_some_and(|s| island::has_art(&s));
+        self.art.sync(want, self.ctl.config.reduce_motion, now);
+    }
+
     /// One timer for the next deadline (a pop-up ending), instead of polling.
     fn schedule_wake(&mut self, now: Instant) -> Task<Message> {
-        let next = self.ctl.next_deadline().filter(|t| *t > now);
+        let next = [self.ctl.next_deadline(), self.art.drop_at()]
+            .into_iter()
+            .flatten()
+            .min()
+            .filter(|t| *t > now);
         if next == self.wake_at {
             return Task::none();
         }
@@ -490,6 +510,7 @@ impl Overlay {
         let island = view::Island {
             ctl: &self.ctl,
             now,
+            art: self.art.current(),
         };
         let surface = iced::Size::new(self.size.0 as f32, self.size.1 as f32);
         let body = island.purist_body(surface);
@@ -513,7 +534,8 @@ impl Overlay {
         if self.demo.is_none() && !self.story {
             subs.push(Subscription::run(stdin_stream));
         }
-        if self.ctl.is_animating(now) {
+        let art_playing = self.art.playing();
+        if self.ctl.is_animating(now) || art_playing {
             // Paced by the compositor: one step per displayed frame, at the monitor's
             // refresh rate, and none while nothing moves. The slow timer only keeps a
             // transition going if frame callbacks stall (e.g. the output turned off).

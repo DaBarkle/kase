@@ -329,6 +329,12 @@ impl App {
         if let Some(a) = &d.audio {
             rows.push(kv("Audio", a.clone()));
         }
+        if has_art(d) {
+            rows.push(kv(
+                "3D model",
+                "“AirPods 4” by Falah3D, CC BY 4.0".to_string(),
+            ));
+        }
         group(rows)
     }
 

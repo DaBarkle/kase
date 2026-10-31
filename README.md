@@ -695,6 +695,11 @@ kept as `upstream-main` and `linux/rust`.
 
 The interface uses the [Inter](https://rsms.me/inter/) typeface (SIL Open Font License).
 
+The AirPods 4 case-open animation is rendered from
+["AirPods 4"](https://sketchfab.com/3d-models/airpods-4-e44730974131402eb496352cab19c82e) by
+[Falah3D](https://sketchfab.com/3dFalah), licensed under
+[CC BY 4.0](http://creativecommons.org/licenses/by/4.0/).
+
 ## Licence
 
 Kase: AirPods for Linux<br>

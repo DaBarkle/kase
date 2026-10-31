@@ -324,6 +324,8 @@ pub struct App {
     pending_ca: Option<(bool, Instant)>,
     /// "Use on this PC" was pressed; shows "Switching…" until the AirPods answer.
     taking_audio: Option<Instant>,
+    /// The case-open animation at the top of the AirPods tab (AirPods 4).
+    art: crate::ui::anim::Art,
     rename: String,
     /// Bluetooth adapter reports Apple's vendor id (DeviceID spoofing); None = unknown.
     apple_mode: Option<bool>,
@@ -392,6 +394,7 @@ impl App {
             pending_mode: None,
             pending_ca: None,
             taking_audio: None,
+            art: Default::default(),
             rename: String::new(),
             apple_mode: demo.then_some(false),
             apple_flow: if demo {
@@ -555,6 +558,10 @@ impl App {
         let mode = self.snap.primary().and_then(|d| self.mode_index(d));
         let reduced = self.settings.reduces_motion();
         motion::set_reduced_ui(reduced);
+        let art = self.window.is_some()
+            && self.tab == Tab::AirPods
+            && self.primary().is_some_and(has_art);
+        self.art.sync(art, reduced, now);
         let m = &mut self.motion;
         m.reduced = reduced;
         let tab = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0);
@@ -1058,9 +1065,17 @@ impl App {
                 _ => None,
             }),
             if self.window.is_some()
-                && (self.motion.is_animating(self.clock) || self.sheen_running())
+                && (self.motion.is_animating(self.clock)
+                    || self.sheen_running()
+                    || self.art.playing())
             {
                 window::frames().map(Message::Frame)
+            } else {
+                Subscription::none()
+            },
+            // Frees the animation's frames a few seconds after it leaves the screen.
+            if self.art.drop_at().is_some() {
+                iced::time::every(Duration::from_secs(1)).map(|_| Message::Tick)
             } else {
                 Subscription::none()
             },
@@ -1213,4 +1228,4 @@ mod page_island;
 mod page_settings;
 
 use controls::*;
-use page_airpods::pill_width;
+use page_airpods::{has_art, pill_width};

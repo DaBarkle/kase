@@ -1,3 +1,4 @@
+pub mod anim;
 pub mod demo;
 pub mod format;
 pub mod messages;
