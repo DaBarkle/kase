@@ -82,6 +82,7 @@ AirPods is one `route:` line in the log, with the reason.
 | Take a phone call while gaming | Stays on the phone for the whole call, then comes back |
 | Let a call or FaceTime ring on the iPhone and end without answering, while gaming or in Discord | Comes back to the PC within a few seconds of the ring ending; the log says `its call is over` |
 | Leave with the AirPods on the iPhone for hours; come home and open the case | Connected to the PC within a minute, sooner if you unlock the PC |
+| Play on the iPhone for a while until the PC reconnects, then press play in Plex on the PC | Back on the PC within a second; the log says `nobody said who has them` |
 | Let the iPhone take the AirPods, wait for them to reconnect to the PC, then press play on the PC | Back on the PC straight away; the log never says `skipping takeover` while you wear them |
 | Press Disconnect on the PC | Stays disconnected, also after restarting Kase, a reboot or suspend |
 | Then connect from the Bluetooth settings | Connects; from then on Kase reconnects them as usual again |

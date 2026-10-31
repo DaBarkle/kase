@@ -6,6 +6,16 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-11-01
+
+### Fixed
+- **Pressing play in Plex takes the AirPods back after they reconnected while the iPhone
+  had them.** After such a reconnect the AirPods may never say who has them. Kase then
+  waited for that report, and Plex (no MPRIS, so its press of play goes unseen) hung with
+  no sound until you pressed On (seen 2026-10-31 after playing on the iPhone). A stream
+  that starts on the PC while nobody has said who has the AirPods now takes them, as a
+  press of play in any other player already did. ([#49])
+
 ## [0.9.5] - 2026-11-01
 
 ### Fixed
@@ -535,3 +545,4 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#46]: https://github.com/DaBarkle/kase/pull/46
 [#47]: https://github.com/DaBarkle/kase/pull/47
 [#48]: https://github.com/DaBarkle/kase/pull/48
+[#49]: https://github.com/DaBarkle/kase/pull/49

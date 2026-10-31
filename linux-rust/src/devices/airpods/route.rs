@@ -331,12 +331,16 @@ pub(super) async fn watch_route(
     if peers.is_empty() {
         let mut state = route.lock();
         state.announced = None;
-        state.streams.reset();
-        if owns != Some(false) {
-            return;
+        match owns {
+            Some(true) => {
+                state.streams.reset();
+                return;
+            }
+            // The device that had them left (out of range, switched off): it is quiet now.
+            Some(false) => _ = state.peer_quiet_since.get_or_insert_with(Instant::now),
+            // Nobody said who has them yet: keep following streams for a press of play.
+            None => {}
         }
-        // The device that had them left (out of range, switched off): it is quiet now.
-        state.peer_quiet_since.get_or_insert_with(Instant::now);
     }
     let mpris = !MediaController::playing_players().await.is_empty();
     let snapshot = tokio::task::spawn_blocking(|| {
@@ -361,6 +365,20 @@ pub(super) async fn watch_route(
         Need::Nothing
     };
 
+    if owns.is_none() {
+        // After a reconnect while the iPhone had them, the AirPods may never say who has
+        // them, and the route watcher below waits for that forever. A stream started here
+        // (Plex has no MPRIS, so the press of play goes unseen) claims them like a press
+        // of play does for MPRIS players.
+        if stream_started
+            && aacp.state.lock().await.maybe_worn()
+            && !crate::media_controller::auto_paused_recently()
+        {
+            info!("route: taking the AirPods (playback started here; nobody said who has them)");
+            let _ = command_tx.send((ControlCommandIdentifiers::OwnsConnection, vec![0x01]));
+        }
+        return;
+    }
     if owns == Some(true) {
         let busy = need >= Need::Playing;
         {
