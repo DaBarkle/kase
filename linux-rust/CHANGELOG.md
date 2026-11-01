@@ -14,6 +14,17 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
   iPhone said it stopped, and brings them home when they say nothing plays even if the
   iPhone never said it stopped.
 
+- **A lighter restart after the AirPods mic switches off.** Kase used to rebuild the whole
+  AirPods output (a profile switch) every time the mic switched back, to stop the right pod
+  going silent. It now just restarts the output on a fresh Bluetooth link, a gap of a
+  fraction of a second, and only falls back to the full rebuild if sound doesn't come back.
+- **Audio profiles are no longer saved.** Profile changes go straight to PipeWire without
+  saving, so a temporary one (the "off" step of a rebuild, a fallback codec) can never be
+  restored at the next connect. Kase falls back to the old way where that isn't possible.
+- **Tidy before sleep.** Kase now asks the PC to wait a moment before suspending (at most
+  3 s) and stops the AirPods sessions first, so the desk mic, speakers and volume are back
+  before the Bluetooth link drops. Nothing reconnects until the PC wakes.
+
 ### Security
 - Updated `crossbeam-epoch`, `quick-xml` and `wayland-scanner` for RUSTSEC-2026-0204,
   -0194 and -0195 (`quick-xml` is only used while building).

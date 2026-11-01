@@ -35,6 +35,9 @@ impl<P: PulseApi, B: BluezApi> Guard<P, B> {
             return;
         }
         if std::mem::take(&mut self.rebuild_pending) && is_a2dp(&active) {
+            if self.cfg.light_refresh && self.refresh_output().await {
+                return;
+            }
             info!(
                 "[audio {}] rebuilding the output (mic stream stopped)",
                 self.mac_str

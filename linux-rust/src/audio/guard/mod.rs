@@ -57,6 +57,10 @@ pub struct GuardConfig {
     /// Where the names of outputs muted by [`Guard::hush`] are kept until they are unmuted,
     /// so a crash or kill mid-rebuild can be undone at the next start. `None` in tests.
     pub hush_file: Option<std::path::PathBuf>,
+    /// After the AirPods mic stops, first restart the output by suspending it (a fresh
+    /// transport, a gap of a fraction of a second) instead of the full `off` toggle.
+    /// The settings key `mic_stop_full_rebuild` switches back to the full toggle.
+    pub light_refresh: bool,
 }
 
 impl Default for GuardConfig {
@@ -77,6 +81,8 @@ impl Default for GuardConfig {
             max_ensure_attempts: 3,
             fresh_link: Duration::from_secs(10),
             hush_file: Some(hush_file()),
+            light_refresh: !crate::utils::app_setting_bool("mic_stop_full_rebuild")
+                .unwrap_or(false),
         }
     }
 }
@@ -655,8 +661,12 @@ impl<P: PulseApi, B: BluezApi> Guard<P, B> {
         snap.card_for(&self.mac_str).cloned()
     }
 
+    /// Waits for a profile change to show. Twice the usual wait: BlueZ holds back a codec
+    /// change that comes within 3 s of the previous one, so a change right after another
+    /// can take over 3 s to land. Giving up sooner made the guard try the next codec while
+    /// the first change was still on its way, and the two fought.
     async fn verify_profile(&self, profile: &str) -> bool {
-        let deadline = Instant::now() + self.cfg.verify_timeout;
+        let deadline = Instant::now() + self.cfg.verify_timeout * 2;
         loop {
             if let Some(card) = self.current_card().await
                 && card.active_profile.as_deref() == Some(profile)

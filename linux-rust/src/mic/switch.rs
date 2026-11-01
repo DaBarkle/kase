@@ -11,8 +11,10 @@
 //!                      -> unload the virtual mic -> restore Conversation Awareness
 //!                      -> rebuild the music output -> DESK
 //! ```
-//! The music output is rebuilt after every stop: on AirPods 4 ANC the right pod went
+//! The music output is restarted after every stop: on AirPods 4 ANC the right pod went
 //! silent after the stream stopped (2026-10-26 test), and only a rebuild brought it back.
+//! The restart is light (the output is suspended and starts again on a fresh transport);
+//! the audio guard falls back to the full profile toggle when that doesn't play.
 //! A stream that stops on its own (the AirPods went to another device) is not restarted.
 
 use super::packets::ELD_SAMPLE_RATE;

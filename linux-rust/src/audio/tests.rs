@@ -32,6 +32,8 @@ struct World {
     toggled_off: bool,
     /// This profile never starts after a toggle (stays idle); any other one plays.
     refuses: Option<String>,
+    /// Suspending the output doesn't bring it back (only a full rebuild does).
+    suspend_doesnt_help: bool,
 }
 
 impl World {
@@ -185,6 +187,16 @@ impl PulseApi for FakePulse {
         Ok(())
     }
 
+    async fn suspend_sink(&self, sink_index: u32, suspend: bool) -> Result<(), PulseError> {
+        let mut w = lock(&self.0);
+        w.log.push(format!("suspend:{sink_index}:{suspend}"));
+        // A suspend gives the playing output a fresh transport, unless it is wedged.
+        if suspend && !w.suspend_doesnt_help {
+            w.transports = vec!["active".into()];
+        }
+        Ok(())
+    }
+
     async fn set_default_sink(&self, name: &str) -> Result<(), PulseError> {
         let mut w = lock(&self.0);
         w.log.push(format!("default:{name}"));
@@ -254,6 +266,7 @@ fn fast() -> GuardConfig {
         max_ensure_attempts: 3,
         fresh_link: Duration::ZERO,
         hush_file: None,
+        light_refresh: false,
     }
 }
 
@@ -1046,6 +1059,64 @@ async fn rebuild_toggles_a_healthy_output_once_every_time() {
     }
     let h = handle.health().borrow().clone();
     assert!(ready_with(&h, "a2dp-sink-aac"), "{h:?}");
+}
+
+#[tokio::test]
+async fn mic_stop_restarts_the_output_without_a_profile_toggle() {
+    let mut w = World::new();
+    w.playing = true;
+    w.add_card("a2dp-sink-aac");
+    w.transports = vec!["active".into()];
+    let cfg = GuardConfig {
+        light_refresh: true,
+        ..fast()
+    };
+    let (world, handle) = start(w, cfg);
+    handle.link_up();
+    wait_health(&handle, "ready", |h| ready_with(h, "a2dp-sink-aac")).await;
+    settle(100).await;
+    handle.rebuild();
+    settle(600).await;
+    let w = lock(&world);
+    assert_eq!(
+        w.count(&format!("suspend:{BT_SINK}:true")),
+        1,
+        "log: {:?}",
+        w.log
+    );
+    assert_eq!(w.count("profile:off"), 0, "log: {:?}", w.log);
+    assert_eq!(w.active().as_deref(), Some("a2dp-sink-aac"));
+}
+
+#[tokio::test]
+async fn mic_stop_falls_back_to_the_full_rebuild_when_the_restart_doesnt_play() {
+    let mut w = World::new();
+    w.playing = true;
+    w.add_card("a2dp-sink-aac");
+    w.transports = vec!["active".into()];
+    w.suspend_doesnt_help = true;
+    let cfg = GuardConfig {
+        light_refresh: true,
+        ..fast()
+    };
+    let (world, handle) = start(w, cfg);
+    handle.link_up();
+    wait_health(&handle, "ready", |h| ready_with(h, "a2dp-sink-aac")).await;
+    settle(100).await;
+    // The suspend leaves the transport idle while the sink runs: no sound.
+    lock(&world).transports = vec!["idle".into()];
+    lock(&world).transport_after_toggle = Some("active".into());
+    handle.rebuild();
+    settle(900).await;
+    let w = lock(&world);
+    assert_eq!(
+        w.count(&format!("suspend:{BT_SINK}:true")),
+        1,
+        "log: {:?}",
+        w.log
+    );
+    assert_eq!(w.count("profile:off"), 1, "log: {:?}", w.log);
+    assert_eq!(w.active().as_deref(), Some("a2dp-sink-aac"));
 }
 
 #[tokio::test]

@@ -60,6 +60,50 @@ impl<P: PulseApi, B: BluezApi> Guard<P, B> {
         }
     }
 
+    /// The light way to restart the output after the AirPods mic stops: suspend the sink
+    /// so PipeWire closes the A2DP transport, and let the playing streams start it again.
+    /// No profile change, so no `off` toggle that releases a running transport (the
+    /// PipeWire error that can lock AAC out) and no streams moving to the speakers.
+    /// Returns false when the output did not play again, and a full rebuild is needed.
+    pub(super) async fn refresh_output(&mut self) -> bool {
+        let Ok(snap) = self.pulse.snapshot().await else {
+            return false;
+        };
+        let Some(sink) = snap
+            .card_for(&self.mac_str)
+            .and_then(|c| snap.sink_for_card(c))
+            .cloned()
+        else {
+            return false;
+        };
+        info!(
+            "[audio {}] restarting the output (mic stream stopped)",
+            self.mac_str
+        );
+        if let Err(e) = self.pulse.suspend_sink(sink.index, true).await {
+            warn!(
+                "[audio {}] could not suspend the output: {}",
+                self.mac_str, e
+            );
+            return false;
+        }
+        // PipeWire resumes a suspended output on demand; plain PulseAudio needs asking.
+        if let Err(e) = self.pulse.suspend_sink(sink.index, false).await {
+            debug!("[audio {}] resume after suspend: {}", self.mac_str, e);
+        }
+        if !self.flowing_within(self.rebuild_flow_wait()).await {
+            info!(
+                "[audio {}] the output didn't play again after the restart",
+                self.mac_str
+            );
+            return false;
+        }
+        self.unhush().await;
+        self.last_repair = Some(Instant::now());
+        self.stall_since = None;
+        true
+    }
+
     /// One profile toggle (the first ladder step), outside the ladder's limits.
     pub(super) async fn rebuild(&mut self) {
         let Some(card) = self.current_card().await else {

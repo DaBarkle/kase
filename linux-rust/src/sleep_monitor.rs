@@ -12,6 +12,53 @@ use log::{debug, info};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::UnboundedSender;
 
+/// logind's "delay" sleep lock: while Kase holds it, the PC waits (up to logind's
+/// InhibitDelayMaxSec, 5 s by default) so the AirPods sessions can put the desk mic,
+/// the speakers and the volume back before the Bluetooth link dies.
+static SLEEP_LOCK: std::sync::Mutex<Option<dbus::arg::OwnedFd>> = std::sync::Mutex::new(None);
+
+/// How long Kase may hold up sleep at most, whatever happens.
+const SLEEP_CLEANUP_LIMIT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// The device sessions are cleaned up: let the PC go to sleep now.
+pub fn ready_to_sleep() {
+    if SLEEP_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+        .is_some()
+    {
+        info!("Ready for sleep");
+    }
+}
+
+async fn take_sleep_lock(conn: &dbus::nonblock::SyncConnection) {
+    let proxy = dbus::nonblock::Proxy::new(
+        "org.freedesktop.login1",
+        "/org/freedesktop/login1",
+        std::time::Duration::from_secs(5),
+        conn,
+    );
+    let res: Result<(dbus::arg::OwnedFd,), _> = proxy
+        .method_call(
+            "org.freedesktop.login1.Manager",
+            "Inhibit",
+            (
+                "sleep",
+                "Kase",
+                "Putting the desk mic and speakers back before sleep",
+                "delay",
+            ),
+        )
+        .await;
+    match res {
+        Ok((fd,)) => {
+            *SLEEP_LOCK.lock().unwrap_or_else(|e| e.into_inner()) = Some(fd);
+        }
+        Err(e) => debug!("No sleep delay lock: {e}"),
+    }
+}
+
 /// The screen is locked, idle or blanked. Starts false: unknown counts as at the PC.
 static AWAY: AtomicBool = AtomicBool::new(false);
 
@@ -69,16 +116,27 @@ async fn run(kick_tx: UnboundedSender<Kick>) -> Result<(), dbus::Error> {
     // The resource future only ends when the connection is lost.
     let lost = tokio::spawn(resource);
 
+    take_sleep_lock(&conn).await;
     let rule = MatchRule::new_signal("org.freedesktop.login1.Manager", "PrepareForSleep");
     let tx = kick_tx.clone();
+    let lock_conn = conn.clone();
     let _match = conn
         .add_match(rule)
         .await?
         .cb(move |_, (going_to_sleep,): (bool,)| {
             if going_to_sleep {
-                debug!("System is going to sleep");
+                info!("System is going to sleep; stopping the AirPods sessions");
+                let _ = tx.send(Kick::Sleeping);
+                // Never hold sleep up for long, even if the cleanup hangs.
+                tokio::spawn(async {
+                    tokio::time::sleep(SLEEP_CLEANUP_LIMIT).await;
+                    ready_to_sleep();
+                });
             } else {
                 let _ = tx.send(Kick::Resumed);
+                // Ready for the next sleep.
+                let conn = lock_conn.clone();
+                tokio::spawn(async move { take_sleep_lock(&conn).await });
             }
             true
         });
