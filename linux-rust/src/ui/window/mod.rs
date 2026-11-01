@@ -36,7 +36,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{Mutex, RwLock};
 
 /// Tall enough for every AirPods page without scrolling (docs/DESIGN.md).
-const WINDOW_SIZE: Size = Size::new(420.0, 680.0);
+const WINDOW_SIZE: Size = Size::new(420.0, 700.0);
 /// How long an optimistic control change is shown before we fall back to the device's state.
 const PENDING_FOR: Duration = Duration::from_secs(4);
 /// The supervisor needs a moment to find the adapter; don't flash "unavailable" at startup.

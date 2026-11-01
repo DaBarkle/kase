@@ -35,7 +35,7 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
   current system colours (the two different greens are gone) and spring limits (no bounce
   above 0.4; the charging light runs one pass, within Apple's 2 s).
 - **The AirPods tab keeps its shape.** Every model gets the same hero slot (the 3D case for
-  AirPods 4, the glyph for others) and the window is a little taller (680 px), so every
+  AirPods 4, the glyph for others) and the window is a little taller (700 px), so every AirPods
   page fits without scrolling.
 - **Light theme polish.** The status pill is white with a hairline instead of black;
   switch and slider knobs have an edge; the Island tab preview keeps its icon.

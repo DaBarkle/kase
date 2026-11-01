@@ -112,7 +112,7 @@ knobs (toggle, slider) get a hairline edge and a soft shadow.
 
 | Element | Value |
 | --- | --- |
-| Window | 420 x 680 by default, so every AirPods page fits without scrolling |
+| Window | 420 x 700 by default, so every AirPods page (including In the case) fits without scrolling |
 | Spacing grid | 4: 4, 8, 12, 16, 20, 24, 32 |
 | Page side margin | 16 |
 | Groups (cards) | Radius 20; rows padded 13 vertical, 16 horizontal; rows at least 48 tall |
