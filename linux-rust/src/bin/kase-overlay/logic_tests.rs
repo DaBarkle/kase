@@ -1142,6 +1142,7 @@ mod live {
         let t4 = ms(t3, 2000);
         state(&mut c, case(Lid::Closed, Seated, Seated), t4);
         assert_eq!(c.target(ms(t4, 1400)), Some(Content::Expanded));
+        assert_eq!(c.headline(ms(t4, 1400)), "Case closed");
         assert_eq!(c.target(ms(t4, 1600)), None);
     }
 

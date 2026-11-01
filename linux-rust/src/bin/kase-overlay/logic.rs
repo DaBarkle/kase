@@ -614,7 +614,12 @@ impl Controller {
             return a.title(&state);
         }
         if state.in_case {
-            return "Case open".into();
+            // Live, the card stays a moment to show the lid shutting: say so.
+            let shut = self.live
+                && state
+                    .case_state
+                    .is_some_and(|c| c.lid == kase::overlay_protocol::Lid::Closed);
+            return if shut { "Case closed" } else { "Case open" }.into();
         }
         if state.elsewhere {
             return elsewhere_label(state.elsewhere_name.as_deref());
