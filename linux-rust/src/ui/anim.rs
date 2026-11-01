@@ -1,4 +1,8 @@
-//! The AirPods 4 case-open animation: pre-rendered WebP frames, played by elapsed time.
+//! The AirPods 4 animations: pre-rendered WebP clips, played by elapsed time.
+//!
+//! Each clip is a folder of frames (`airpods4-<clip>/f000.webp`..). Which moment plays
+//! which clip is in `docs/JOURNEYS.md`; a clip whose frames aren't installed falls back
+//! to the case-open clip.
 //!
 //! Frames are read and decoded on a background thread a little ahead of playback (a
 //! bounded queue), so only a few dozen are ever held decoded. Dropping the player stops
@@ -13,7 +17,64 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 pub const FPS: f32 = 144.0;
+/// Frames in the case-open clip (the one always installed).
 pub const COUNT: usize = 231;
+
+/// What the art shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Clip {
+    /// The lid opens and the pods lift out (connected, live).
+    Open,
+    /// First connect of the day: the case turns 360 degrees, opens, the pods spiral out.
+    SpinOpen,
+    /// Both pods drop back in and the lid closes.
+    PutAway,
+    /// A still of the closed case (put away, out of range): the open clip's first frame.
+    Closed,
+}
+
+impl Clip {
+    fn folder(self) -> &'static str {
+        match self {
+            Clip::Open | Clip::Closed => "airpods4-open",
+            Clip::SpinOpen => "airpods4-spin-open",
+            Clip::PutAway => "airpods4-put-away",
+        }
+    }
+}
+
+/// Frames in `clip` (0 when not installed), counted once.
+fn clip_len(clip: Clip) -> usize {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    static LENS: OnceLock<Mutex<HashMap<Clip, usize>>> = OnceLock::new();
+    let lens = LENS.get_or_init(Default::default);
+    if let Some(n) = lens.lock().ok().and_then(|m| m.get(&clip).copied()) {
+        return n;
+    }
+    let n = dir()
+        .and_then(|d| d.parent())
+        .map(|base| {
+            let folder = base.join(clip.folder());
+            (0..2000)
+                .take_while(|i| folder.join(format!("f{i:03}.webp")).is_file())
+                .count()
+        })
+        .unwrap_or(0);
+    if let Ok(mut m) = lens.lock() {
+        m.insert(clip, n);
+    }
+    n
+}
+
+/// The clip to play for `clip`: itself when installed, else the case-open clip.
+fn resolve(clip: Clip) -> (PathBuf, usize, Clip) {
+    let base = dir().and_then(|d| d.parent()).map(PathBuf::from);
+    match (base, clip_len(clip)) {
+        (Some(b), n) if n > 0 => (b.join(clip.folder()), n, clip),
+        _ => (dir().cloned().unwrap_or_default(), COUNT, Clip::Open),
+    }
+}
 /// Frames decoded ahead of playback (each 440x440 RGBA is about 0.8 MB). A decode takes
 /// a few ms, so 8 frames (55 ms) is plenty of lead at 144 fps.
 const AHEAD: usize = 8;
@@ -45,17 +106,26 @@ pub fn dir() -> Option<&'static PathBuf> {
     .as_ref()
 }
 
-/// Which frame to show `elapsed` after the start: plays once, then holds the last.
+/// Which frame of a `count`-frame clip to show `elapsed` after the start: plays once,
+/// then holds the last. `still` (Reduce motion) shows the last frame at once.
 pub fn frame_at(elapsed: Duration, still: bool) -> usize {
+    clip_frame_at(elapsed, still, COUNT)
+}
+
+fn clip_frame_at(elapsed: Duration, still: bool, count: usize) -> usize {
+    let last = count.saturating_sub(1);
     if still {
-        return COUNT - 1;
+        return last;
     }
-    ((elapsed.as_secs_f32() * FPS) as usize).min(COUNT - 1)
+    ((elapsed.as_secs_f32() * FPS) as usize).min(last)
 }
 
 pub struct Player {
     start: Instant,
     still: bool,
+    count: usize,
+    /// Only this frame is shown (the closed still).
+    hold: Option<usize>,
     rx: Receiver<(usize, Handle)>,
     /// Decoded but not yet due.
     next: Option<(usize, Handle)>,
@@ -70,16 +140,26 @@ impl Player {
     /// Starts playing now. `still` (Reduce motion) decodes and shows only the last frame.
     /// None when the frames aren't installed.
     pub fn start(still: bool) -> Option<Self> {
-        let dir = dir()?.clone();
+        Self::play(Clip::Open, still)
+    }
+
+    /// Starts `clip` now (falls back to the case-open clip when it isn't installed).
+    pub fn play(clip: Clip, still: bool) -> Option<Self> {
+        dir()?;
+        let (dir, count, clip) = resolve(clip);
+        let hold = (clip == Clip::Closed).then_some(0);
+        let still = still || hold.is_some();
+        let first = hold.unwrap_or(if still { count - 1 } else { 0 });
         let (tx, rx) = sync_channel(AHEAD);
-        let want = Arc::new(AtomicUsize::new(if still { COUNT - 1 } else { 0 }));
+        let want = Arc::new(AtomicUsize::new(first));
         let stop = Arc::new(AtomicBool::new(false));
         let (w, s) = (want.clone(), stop.clone());
         std::thread::Builder::new()
             .name("kase-anim".into())
             .spawn(move || {
-                let mut i = 0;
-                while i < COUNT && !s.load(Ordering::Relaxed) {
+                let mut i = first;
+                let end = if hold.is_some() { first + 1 } else { count };
+                while i < end && !s.load(Ordering::Relaxed) {
                     // Behind playback: skip to what is due instead of decoding stale frames.
                     i = i.max(w.load(Ordering::Relaxed));
                     let Some(h) = decode(&dir.join(format!("f{i:03}.webp"))) else {
@@ -97,6 +177,8 @@ impl Player {
         Some(Self {
             start: crate::testclock::now(),
             still,
+            count,
+            hold,
             rx,
             next: None,
             shown: None,
@@ -109,7 +191,14 @@ impl Player {
     /// Moves to the newest decoded frame that is due at `now`. Holds the last one shown
     /// when decoding falls behind.
     pub fn advance(&mut self, now: Instant) {
-        let due = frame_at(now.saturating_duration_since(self.start), self.still);
+        let due = match self.hold {
+            Some(f) => f,
+            None => clip_frame_at(
+                now.saturating_duration_since(self.start),
+                self.still,
+                self.count,
+            ),
+        };
         self.want.store(due, Ordering::Relaxed);
         loop {
             let f = match self.next.take() {
@@ -162,14 +251,25 @@ impl Player {
 pub struct Art {
     player: Option<Player>,
     want: bool,
+    clip: Option<Clip>,
     hidden: Option<Instant>,
 }
 
 impl Art {
-    /// Call on every tick with whether the art is on screen.
+    /// Call on every tick with whether the art is on screen (the case-open clip).
     pub fn sync(&mut self, want: bool, still: bool, now: Instant) {
-        if want && !self.want {
-            self.player = Player::start(still);
+        self.show(want.then_some(Clip::Open), still, now);
+    }
+
+    /// Call on every tick with the clip on screen, if any. A new clip starts from its
+    /// first frame; the same clip keeps playing (or holding its last frame).
+    pub fn show(&mut self, clip: Option<Clip>, still: bool, now: Instant) {
+        let want = clip.is_some();
+        if let Some(c) = clip
+            && (!self.want || self.clip != Some(c))
+        {
+            self.player = Player::play(c, still);
+            self.clip = Some(c);
         }
         if want {
             self.hidden = None;

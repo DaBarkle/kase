@@ -6,7 +6,43 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+### Added
+- **The case spins on the first connect of the day.** AirPods 4 opened at the desk for the
+  first time in a while get a new animation: the closed case turns once, the lid opens and
+  both pods spiral up out of it, settling with a small bounce. Later connects the same day
+  play the familiar case-open clip.
+- **A put-away animation.** Putting both pods back shows the case card with the pods
+  dropping in and the lid closing.
+- **Design rules and journeys.** `docs/DESIGN.md` (Apple's Live Activities rules as the
+  base, plus Kase's 3D layer) and `docs/JOURNEYS.md` (what the island shows in ten
+  everyday moments) are what every visual change is now checked against.
+- **Frame-exact visual tests.** `just visual-journeys` plays those ten journeys on a test
+  clock and records every frame into filmstrips, videos and automatic checks. ([#55])
+
 ### Changed
+- **A calmer island: one thing you do, one message.** Kase now waits a moment (0.3 s) for
+  the AirPods to finish reporting before it reacts, so putting the pods away one at a time
+  no longer flips between "Left charging", the full card and "Case open". Alerts of the
+  same kind join up ("AirPods charging"), an open card updates in place instead of being
+  swapped out, and a new message waits until the current one has been on screen for 1.2 s.
+- **Low battery warns once.** A level wobbling around 20% no longer repeats the warning;
+  it comes back after charging or once the level rises 5 points.
+- **The case going on a charger is announced** while the pods sit in the open case.
+- **The art tells the truth.** Put away or out of range, the AirPods tab shows the closed
+  case instead of the open one, and the island's case animation starts once the card has
+  finished opening, so its best part is no longer hidden behind the morph.
+- **One palette and one set of springs** for the island and the window, from Apple's
+  current system colours (the two different greens are gone) and spring limits (no bounce
+  above 0.4; the charging light runs one pass, within Apple's 2 s).
+- **The AirPods tab keeps its shape.** Every model gets the same hero slot (the 3D case for
+  AirPods 4, the glyph for others) and the window is a little taller (700 px), so every AirPods
+  page fits without scrolling.
+- **Light theme polish.** The status pill is white with a hairline instead of black;
+  switch and slider knobs have an edge; the Island tab preview keeps its icon.
+- **Smaller touches.** The island card's padding is even on both sides; the compact island
+  uses one case icon; pointing at a noise control mode in the quick look names it; the
+  case's "last seen" caption fits on one line; **Rename** lights up once there is a new
+  name to save.
 - **Switching back from the iPhone listens to the AirPods too.** The AirPods' own
   Bluetooth adverts say whether the device that has them is idle, playing or on a call.
   Kase now uses that as a second opinion: it never takes the AirPods back while they say a
@@ -617,3 +653,4 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#49]: https://github.com/DaBarkle/kase/pull/49
 [#50]: https://github.com/DaBarkle/kase/pull/50
 [#51]: https://github.com/DaBarkle/kase/pull/51
+[#55]: https://github.com/DaBarkle/kase/pull/55

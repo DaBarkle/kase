@@ -5,6 +5,7 @@ pub mod messages;
 pub mod motion;
 pub mod settings;
 pub mod style;
+pub mod tokens;
 pub mod tray;
 pub mod widgets;
 pub mod window;

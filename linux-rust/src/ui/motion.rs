@@ -18,22 +18,23 @@ pub struct Curve {
     pub damping: f32,
 }
 
+impl Curve {
+    /// A design token's spring (duration and bounce; bounce b is damping ratio 1 - b).
+    pub const fn from(t: crate::ui::tokens::Spring) -> Self {
+        Self {
+            response: t.duration,
+            damping: 1.0 - t.bounce,
+        }
+    }
+}
+
 /// Selection highlights: quick with a hint of liquid overshoot.
-pub const SNAPPY: Curve = Curve {
-    response: 0.32,
-    damping: 0.82,
-};
+pub const SNAPPY: Curve = Curve::from(crate::ui::tokens::SNAPPY);
 /// Battery rings and glows: unhurried, no overshoot.
-pub const SMOOTH: Curve = Curve {
-    response: 0.9,
-    damping: 1.0,
-};
+pub const SMOOTH: Curve = Curve::from(crate::ui::tokens::FILL);
 
 /// Charging bolts popping in: quick, with a visible bounce.
-pub const POP: Curve = Curve {
-    response: 0.45,
-    damping: 0.55,
-};
+pub const POP: Curve = Curve::from(crate::ui::tokens::POP);
 /// Short fades. The only motion left when Reduce motion is on.
 pub const FADE: Curve = Curve {
     response: 0.22,

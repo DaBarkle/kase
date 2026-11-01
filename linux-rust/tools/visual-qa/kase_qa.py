@@ -102,7 +102,8 @@ def scenarios() -> list[Shot]:
             s.append(window(f"window-{tab.lower()}-{theme}-full", tab=tab, theme=theme,
                             height=1000))
     # AirPods tab for every device state.
-    for sc in ("pro", "max", "low", "disconnected", "incase", "putaway", "empty", "btoff"):
+    for sc in ("pro", "max", "low", "elsewhere", "disconnected", "incase", "putaway", "empty",
+               "btoff"):
         s.append(window(f"window-state-{sc}", scenario=sc))
     s.append(window("window-state-pro-light", scenario="pro", theme="light"))
     # Apple device mode steps.

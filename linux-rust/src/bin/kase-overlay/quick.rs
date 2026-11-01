@@ -15,7 +15,10 @@ pub const ROW_H: f32 = 32.0;
 pub const MODES_Y: f32 = 108.0;
 const BOTTOM: f32 = 16.0;
 
-const OPEN: Feel = Feel::new(0.42, 0.22);
+const OPEN: Feel = Feel::new(
+    kase::ui::tokens::GROW.duration,
+    kase::ui::tokens::GROW.bounce,
+);
 const CLOSE: Feel = Feel::new(0.24, 0.0);
 const FADE: Feel = Feel::new(0.22, 0.0);
 const GLIDE: Feel = Feel::new(0.3, 0.15);

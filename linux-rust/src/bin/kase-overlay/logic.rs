@@ -11,14 +11,8 @@ use kase::overlay_protocol::{
     ComponentState, OverlayCommand, OverlayConfig, OverlayMode, OverlayState, OverlayStyle,
 };
 
-/// Battery band used to detect "dropped to 20% / 10%".
-fn band(level: u8) -> u8 {
-    match level {
-        0..=10 => 0,
-        11..=20 => 1,
-        _ => 2,
-    }
-}
+use crate::settle::{Settler, band, meaningful};
+use kase::ui::anim::Clip;
 
 fn present(c: &Option<ComponentState>) -> bool {
     c.as_ref().is_some_and(|c| c.present)
@@ -47,8 +41,13 @@ pub fn event(prev: Option<&OverlayState>, next: &OverlayState) -> Option<Content
         (&prev.case, &next.case),
         (&prev.headphone, &next.headphone),
     ];
-    // A pod (or the case) came or went: the whole picture changed.
-    if pairs.iter().any(|(a, b)| present(a) != present(b)) {
+    // A pod came or went: the whole picture changed. The case coming or going is not
+    // news: it reads "unknown" for a while whenever a pod goes in or both come out.
+    if pairs
+        .iter()
+        .enumerate()
+        .any(|(i, (a, b))| i != 2 && present(a) != present(b))
+    {
         return Some(Content::Expanded);
     }
     let mut low = Parts::default();
@@ -125,6 +124,37 @@ fn shows_charging(content: Option<&Content>, state: &OverlayState) -> bool {
 const CASE_CARD: Duration = Duration::from_secs(6);
 /// How long it stays after a pod comes out of the case.
 const CASE_CARD_AFTER_POD_OUT: Duration = Duration::from_secs(2);
+/// The case spins again on a connect this long after the last spin (once a day, in
+/// practice: the AirPods sit in the case overnight).
+const SPIN_AGAIN_AFTER: Duration = Duration::from_secs(6 * 3600);
+/// How long the case card stays after both pods are put away.
+const CASE_CARD_PUT_AWAY: Duration = Duration::from_secs(3);
+/// A presentation stays at least this long before a different one replaces it.
+pub const MIN_DISPLAY: Duration = Duration::from_millis(1200);
+/// An open card stays at least this long after its last change.
+const CARD_AFTER_CHANGE: Duration = Duration::from_secs(3);
+
+/// Two alerts of the same kind told as one: left then right charging becomes "AirPods
+/// charging"; a newer noise control mode or mic replaces the older one.
+fn merge(cur: &Content, new: &Content) -> Option<Content> {
+    let (Content::Alert(a), Content::Alert(b)) = (cur, new) else {
+        return None;
+    };
+    let union = |x: &Parts, y: &Parts| Parts {
+        left: x.left || y.left,
+        right: x.right || y.right,
+        case: x.case || y.case,
+        headphone: x.headphone || y.headphone,
+    };
+    Some(Content::Alert(match (a, b) {
+        (Alert::Charging(x), Alert::Charging(y)) => Alert::Charging(union(x, y)),
+        (Alert::Low(x), Alert::Low(y)) => Alert::Low(union(x, y)),
+        (Alert::Listening(_), Alert::Listening(_))
+        | (Alert::Mic(_), Alert::Mic(_))
+        | (Alert::Elsewhere(_), Alert::Elsewhere(_)) => b.clone(),
+        _ => return None,
+    }))
+}
 
 /// What the iced side has to do with the layer surface after a tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,6 +188,26 @@ pub struct Controller {
     pub motion: Motion,
     /// Frames are still needed (springs or content transitions in flight).
     moving: bool,
+    /// The state the island last reacted to (`state` is the newest, shown at once).
+    settled: Option<OverlayState>,
+    /// Gathers a burst of updates into one moment.
+    settler: Settler,
+    /// React to every state at once (tests of the judging rules).
+    pub settle_at_once: bool,
+    /// When the current pop-up started showing (for the minimum time on screen).
+    pop_since: Option<Instant>,
+    /// A presentation waiting for the current one's minimum time; the newest wins.
+    queued: Option<(Content, Instant)>,
+    /// News told in the open card's second line instead of replacing the card.
+    news: Option<(Alert, Instant)>,
+    /// The case card was cut short (a pod came out): later changes can't stretch it.
+    card_cap: Option<Instant>,
+    /// Lowest battery band already announced per part (left, right, case, headphone).
+    low_told: [Option<u8>; 4],
+    /// The clip the case card plays for the moment that opened it.
+    pub case_clip: Clip,
+    /// When the case last played its first-connect spin.
+    last_spin: Option<Instant>,
 }
 
 impl Default for Controller {
@@ -181,6 +231,16 @@ impl Controller {
             farewell_until: None,
             motion: Motion::default(),
             moving: false,
+            settled: None,
+            settler: Settler::default(),
+            settle_at_once: false,
+            pop_since: None,
+            queued: None,
+            news: None,
+            card_cap: None,
+            low_told: [None; 4],
+            case_clip: Clip::Open,
+            last_spin: None,
         }
     }
 
@@ -190,6 +250,46 @@ impl Controller {
             Content::Alert(a) => a.duration(),
             _ => self.config.auto_hide_secs.clamp(0.5, 600.0),
         };
+        let until = now + Duration::from_secs_f32(secs);
+        let cap = self.card_cap.filter(|t| now < *t);
+        let since = self.pop_since;
+        if let Some((cur, cur_until)) = &mut self.pop
+            && now < *cur_until
+        {
+            // The same kind of alert is up: tell both as one, in place.
+            if let Some(merged) = merge(cur, &content) {
+                *cur = merged;
+                *cur_until = (*cur_until).max(until);
+                self.queued = None;
+                return;
+            }
+            // The card is open: it stays, says the news on its second line and gives a
+            // little bounce, and stays up a while after the change.
+            if *cur == Content::Expanded {
+                let keep = (*cur_until).max(match &content {
+                    Content::Expanded => until,
+                    _ => now + CARD_AFTER_CHANGE,
+                });
+                *cur_until = cap.map_or(keep, |c| keep.min(c));
+                if let Content::Alert(a) = content {
+                    self.news = Some((a, now + Duration::from_secs_f32(secs)));
+                }
+                if self.mapped && self.motion.shown == Some(Content::Expanded) {
+                    self.motion.bump();
+                    self.moving = true;
+                }
+                self.queued = None;
+                return;
+            }
+            // Something else is up and hasn't been seen long enough: wait for it.
+            if *cur != content
+                && let Some(since) = since
+                && now < since + MIN_DISPLAY
+            {
+                self.queued = Some((content, since + MIN_DISPLAY));
+                return;
+            }
+        }
         let card_stays = self.config.mode == OverlayMode::Always
             || self.previewing(now)
             || content == Content::Expanded;
@@ -198,7 +298,50 @@ impl Controller {
             self.motion.bump();
             self.moving = true;
         }
-        self.pop = Some((content, now + Duration::from_secs_f32(secs)));
+        if self.popped(now) != Some(&content) {
+            self.pop_since = Some(now);
+        }
+        self.news = None;
+        self.queued = None;
+        self.pop = Some((content, until));
+    }
+
+    /// Announces each low battery band once per discharge. A part re-arms when it charges
+    /// or rises 5 points above the line it crossed.
+    fn tell_low(&mut self, parts: Parts, state: &OverlayState) -> Parts {
+        let comps = [&state.left, &state.right, &state.case, &state.headphone];
+        let wanted = [parts.left, parts.right, parts.case, parts.headphone];
+        let mut out = [false; 4];
+        for i in 0..4 {
+            let Some(c) = comps[i] else { continue };
+            let b = band(c.level);
+            if wanted[i] && self.low_told[i].is_none_or(|told| b < told) {
+                self.low_told[i] = Some(b);
+                out[i] = true;
+            }
+        }
+        Parts {
+            left: out[0],
+            right: out[1],
+            case: out[2],
+            headphone: out[3],
+        }
+    }
+
+    fn rearm_low(&mut self, state: &OverlayState) {
+        let comps = [&state.left, &state.right, &state.case, &state.headphone];
+        for (told, c) in self.low_told.iter_mut().zip(comps) {
+            let Some(c) = c.as_ref().filter(|c| c.present) else {
+                continue;
+            };
+            *told = match *told {
+                _ if c.charging => None,
+                Some(0) if c.level >= 25 => None,
+                Some(0) if c.level >= 15 => Some(1),
+                Some(1) if c.level >= 25 => None,
+                t => t,
+            };
+        }
     }
 
     /// Lights the border for `content` (purist style only; the classic island has no
@@ -236,56 +379,16 @@ impl Controller {
                 }
             }
             OverlayCommand::State { state } => {
-                let mut ev = event(self.state.as_ref(), &state);
-                let just_connected =
-                    state.connected && !self.state.as_ref().is_some_and(|p| p.connected);
-                let was_in_case = self
-                    .state
-                    .as_ref()
-                    .is_some_and(|p| p.connected && p.in_case);
-                // Pods sitting in the open case: the case card or nothing. Their routine news
-                // (charging, the case level arriving) and the lid closing aren't worth a pop.
-                if state.in_case || (was_in_case && !state.connected) {
-                    ev = None;
-                }
-                if was_in_case && state.connected && !state.in_case {
-                    // A pod came out: the case card has done its job.
-                    if let Some((Content::Expanded, until)) = &mut self.pop {
-                        *until = (*until).min(now + CASE_CARD_AFTER_POD_OUT);
-                    }
-                }
-                if just_connected && state.in_case && self.config.case_card && !self.fullscreen {
-                    ev = Some(Content::Expanded);
-                }
                 if self.motion.update_levels(&state, self.mapped) {
                     self.moving = true;
                 }
-                if !state.connected {
-                    self.pop = None;
-                }
-                match ev {
-                    Some(Content::Alert(Alert::Disconnected)) => {
-                        let secs = Alert::Disconnected.duration();
-                        self.farewell_until = Some(now + Duration::from_secs_f32(secs));
-                        self.state = Some(state);
-                        self.announce(&Content::Alert(Alert::Disconnected), false, now);
-                        return;
-                    }
-                    Some(c) => {
-                        self.farewell_until = None;
-                        let case_card = state.in_case;
-                        self.state = Some(state);
-                        self.announce(&c, just_connected, now);
-                        self.pop_up(c, now);
-                        if case_card && let Some((_, until)) = &mut self.pop {
-                            *until = now + CASE_CARD;
-                        }
-                        return;
-                    }
-                    None if state.connected => self.farewell_until = None,
-                    None => {}
+                if meaningful(self.state.as_ref(), &state) {
+                    self.settler.changed(now);
                 }
                 self.state = Some(state);
+                if self.settle_at_once && self.settler.flush() {
+                    self.judge(now);
+                }
             }
             OverlayCommand::Fullscreen { active } => self.fullscreen = active,
             OverlayCommand::Show { reason } if reason == "preview" || reason == "opacity" => {
@@ -310,6 +413,86 @@ impl Controller {
             }
             // The quick look has its own surface (`main.rs`); nothing changes here.
             OverlayCommand::QuickLook { .. } | OverlayCommand::Quit => {}
+        }
+    }
+
+    /// Reacts to the settled state: what changed since the last moment, and what (if
+    /// anything) is worth showing for it.
+    fn judge(&mut self, now: Instant) {
+        let Some(state) = self.state.clone() else {
+            return;
+        };
+        let prev = self.settled.replace(state.clone());
+        let mut ev = event(prev.as_ref(), &state);
+        let just_connected = state.connected && !prev.as_ref().is_some_and(|p| p.connected);
+        let was_in_case = prev.as_ref().is_some_and(|p| p.connected && p.in_case);
+        self.rearm_low(&state);
+        if let Some(Content::Alert(Alert::Low(parts))) = ev {
+            let told = self.tell_low(parts, &state);
+            ev = told.any().then_some(Content::Alert(Alert::Low(told)));
+        }
+        // Pods sitting in the open case: the case card or nothing. Their routine news (a
+        // pod charging, the case level arriving) and the lid closing aren't worth a pop;
+        // the case going on a charger is.
+        let case_charging = matches!(
+            &ev,
+            Some(Content::Alert(Alert::Charging(p))) if p.case && !p.left && !p.right
+        );
+        if (state.in_case && !case_charging) || (was_in_case && !state.connected) {
+            ev = None;
+        }
+        if was_in_case && state.connected && !state.in_case {
+            // A pod came out: the case card has done its job.
+            let cap = now + CASE_CARD_AFTER_POD_OUT;
+            if let Some((Content::Expanded, until)) = &mut self.pop {
+                *until = (*until).min(cap);
+                self.card_cap = Some(cap);
+            }
+        }
+        let card_ok = self.config.case_card && !self.fullscreen;
+        let put_away = !just_connected && !was_in_case && state.in_case && state.connected;
+        if card_ok && ((just_connected && state.in_case) || put_away) {
+            ev = Some(Content::Expanded);
+        }
+        if !state.connected {
+            self.pop = None;
+            self.queued = None;
+            self.news = None;
+        }
+        match ev {
+            Some(Content::Alert(Alert::Disconnected)) => {
+                let secs = Alert::Disconnected.duration();
+                self.farewell_until = Some(now + Duration::from_secs_f32(secs));
+                self.announce(&Content::Alert(Alert::Disconnected), false, now);
+            }
+            Some(c) => {
+                self.farewell_until = None;
+                let case_card = state.in_case && c == Content::Expanded;
+                if case_card {
+                    self.case_clip = if put_away {
+                        Clip::PutAway
+                    } else if self.last_spin.is_none_or(|t| now >= t + SPIN_AGAIN_AFTER) {
+                        // The first connect of the day gets the spin; later ones just open.
+                        self.last_spin = Some(now);
+                        Clip::SpinOpen
+                    } else {
+                        Clip::Open
+                    };
+                }
+                self.announce(&c, just_connected, now);
+                self.card_cap = None;
+                self.pop_up(c, now);
+                if case_card && let Some((_, until)) = &mut self.pop {
+                    *until = now
+                        + if put_away {
+                            CASE_CARD_PUT_AWAY
+                        } else {
+                            CASE_CARD
+                        };
+                }
+            }
+            None if state.connected => self.farewell_until = None,
+            None => {}
         }
     }
 
@@ -367,6 +550,12 @@ impl Controller {
         if let Some(Content::Alert(a)) = self.popped(now) {
             return a.title(&state);
         }
+        if let Some((a, until)) = &self.news
+            && now < *until
+            && self.popped(now) == Some(&Content::Expanded)
+        {
+            return a.title(&state);
+        }
         if state.in_case {
             return "Case open".into();
         }
@@ -399,9 +588,23 @@ impl Controller {
 
     /// Advances the animation to `now` and says what to do with the surface.
     pub fn tick(&mut self, now: Instant) -> SurfaceAction {
+        if self.settler.take(now) {
+            self.judge(now);
+        }
+        if let Some((c, at)) = self.queued.clone()
+            && now >= at
+        {
+            self.queued = None;
+            self.pop_up(c, now);
+        }
         let target = self.target(now);
         if self.pop.as_ref().is_some_and(|(_, t)| now >= *t) {
             self.pop = None;
+            self.pop_since = None;
+            self.card_cap = None;
+        }
+        if self.news.as_ref().is_some_and(|(_, t)| now >= *t) {
+            self.news = None;
         }
         if self.farewell_until.is_some_and(|t| now >= t) {
             self.farewell_until = None;
@@ -478,6 +681,9 @@ impl Controller {
             self.pop.as_ref().map(|(_, t)| *t),
             self.preview_until,
             self.farewell_until,
+            self.settler.due(),
+            self.queued.as_ref().map(|(_, t)| *t),
+            self.news.as_ref().map(|(_, t)| *t),
         ]
         .into_iter()
         .flatten()

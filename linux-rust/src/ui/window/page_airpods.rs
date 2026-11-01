@@ -118,24 +118,35 @@ impl App {
             let m = self.gauge_motion(i, g);
             rings = rings.push(container(widgets::gauge_view::<Message>(g, size, m)).width(Fill));
         }
-        // AirPods 4: the case-open animation between the status island and the name. The
-        // box keeps its size before the first frame is decoded, so nothing moves.
+        // The hero: always the same slot for a model (docs/DESIGN.md), so the page never
+        // changes shape. AirPods 4 get the case-open animation; the box keeps its size
+        // before the first frame is decoded, so nothing moves. Other models show their
+        // glyph until they have a render.
+        let slot = Length::Fixed(HERO);
         let art: Element<'a, Message> = if has_art(d) {
-            let size = Length::Fixed(ART);
             match self.art.current() {
                 Some(h) => iced::widget::image(h.clone())
-                    .width(size)
-                    .height(size)
+                    .width(slot)
+                    .height(slot)
                     .into(),
-                None => Space::new().width(size).height(size).into(),
+                None => Space::new().width(slot).height(slot).into(),
             }
         } else {
-            Space::new().height(0).into()
+            // A smaller slot: these models carry more controls (listening mode,
+            // conversation awareness) and the page must still fit the window.
+            let slot = Length::Fixed(GLYPH_HERO);
+            container(widgets::icon(Glyph::Earbuds, 40.0, Ink::Faint))
+                .width(Fill)
+                .height(slot)
+                .center_x(Fill)
+                .center_y(slot)
+                .into()
         };
         column![
             self.status_island(d),
             gap(18.0),
             art,
+            gap(16.0),
             text(d.name.clone())
                 .size(26)
                 .font(style::INTER_SEMIBOLD)
@@ -273,8 +284,10 @@ impl App {
     // -------------------------------------------------------------- Island
 }
 
-/// The animation box on the AirPods tab, in logical px (frames are 2x).
-const ART: f32 = 220.0;
+/// The hero slot on the AirPods tab, in logical px (animation frames are 2x).
+const HERO: f32 = 200.0;
+/// The hero slot for models without a render yet: their glyph.
+const GLYPH_HERO: f32 = 56.0;
 
 /// AirPods 4 get the case-open animation when its frames are installed.
 pub(super) fn has_art(d: &DeviceSnapshot) -> bool {

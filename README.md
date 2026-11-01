@@ -102,14 +102,14 @@ The island sits at the top center of your screen, like the Dynamic Island on an 
 It changes shape to show what matters right now and moves on springs, the way the real
 thing does: it grows out of a small pill with a little bounce, its contents cross-fade,
 rings sweep in one after another and percentages roll when they change. While something
-charges, a faint light runs round its ring (a few times, never over a game). The L or R
+charges, a faint light runs once round its ring (never over a game). The L or R
 label dims while that pod is out of your ear. A change that arrives mid-animation bends the
 motion instead of restarting it.
 
 <div align="center">
 <img src="linux-rust/docs/screenshots/island-card.png" width="368" alt="The island's card: AirPods 4, Noise Cancellation, with rings for the left pod at 82%, the right pod at 77% and the case at 46%, and a spectrum of light running round its edge">
 <br>
-<img src="linux-rust/docs/screenshots/island-compact.png" width="210" alt="The slim island at rest: L 82%, R 77% and the case at 46%">
+<img src="linux-rust/docs/screenshots/island-compact.png" width="204" alt="The slim island at rest: L 82%, R 77% and the case at 46%">
 </div>
 
 When the AirPods connect it opens into a **card** with a ring for each pod and the case,
@@ -120,12 +120,20 @@ into a short **alert** that names the one thing that changed:
 <img src="linux-rust/docs/screenshots/island-alerts.png" width="640" alt="Eight alerts: Case charging in green, Right AirPod low in amber, Playing on iPhone and Back on this PC in blue, Transparency, AirPods Mic, AirPods Mic Unavailable, and AirPods 4 Disconnected">
 </div>
 
+The island stays calm: one thing you do is one message. Kase waits a moment for the
+AirPods to finish reporting before it reacts, so putting the pods away one at a time shows
+one alert, not a flurry. Alerts of the same kind join up ("AirPods charging"), an open card
+updates in place, a message is never swapped out before you've had time to read it, and a
+low battery warns once rather than every time the level wobbles.
+
 When the AirPods connect from the open case, the card shows both pods and the case for
 about 6 seconds and folds away 2 seconds after you take a pod out. With AirPods 4 the card
-opens with a 3D animation of the lid swinging open and the pods rising out, played at your
-monitor's refresh rate (just the last frame with **Reduce motion**). The AirPods tab plays it
-too. Closing the lid with the
-pods inside doesn't pop a *Disconnected* alert. The case card is never shown over a
+plays a 3D animation once it has finished opening: the lid swings open and the pods rise
+out. On the first connect of the day the closed case first turns a full circle and the
+pods spiral up out of it. Putting both pods back plays them dropping in and the lid
+closing. Everything plays at your monitor's refresh rate (just the last frame with
+**Reduce motion**), and the AirPods tab shows the case open or closed to match. Closing
+the lid with the pods inside doesn't pop a *Disconnected* alert. The case card is never shown over a
 fullscreen game or video; turn it off with **Show a card when I open the case** in the
 Island tab.
 
@@ -229,10 +237,10 @@ can pick one.
 The window tells you what your AirPods are doing at a glance:
 
 <p align="center">
-  <img src="linux-rust/docs/screenshots/state-connected.png" width="168" alt="Connected over AAC, with left, right and case rings">
-  <img src="linux-rust/docs/screenshots/state-elsewhere.png" width="168" alt="Playing on iPhone, with a Use on this PC button">
-  <img src="linux-rust/docs/screenshots/state-away.png" width="168" alt="Not connected, seen 1 hour ago, the levels greyed out, and a note that Kase reconnects on its own">
-  <img src="linux-rust/docs/screenshots/state-in-case.png" width="168" alt="In case, seen 20 minutes ago, with a hint to open the lid to update the levels">
+  <img src="linux-rust/docs/screenshots/state-connected.png" width="168" alt="Connected over AAC: the 3D AirPods 4 case with both pods out, and left, right and case rings">
+  <img src="linux-rust/docs/screenshots/state-elsewhere.png" width="168" alt="Playing on iPhone, the AirPods still shown with their levels">
+  <img src="linux-rust/docs/screenshots/state-away.png" width="168" alt="Not connected, seen 1 hour ago: the case shown closed and the levels greyed out">
+  <img src="linux-rust/docs/screenshots/state-in-case.png" width="168" alt="In case, seen 20 minutes ago: the case shown closed, with a hint to open the lid to update the levels">
   <img src="linux-rust/docs/screenshots/state-low.png" width="168" alt="AirPods low: the left pod at 9% in red, the right pod at 17% in amber">
   <br>
   <sub>Connected &nbsp;·&nbsp; On another device &nbsp;·&nbsp; Away &nbsp;·&nbsp; In the case &nbsp;·&nbsp; Low battery</sub>
@@ -673,7 +681,9 @@ kase-overlay --demo --step 3 --size extra_large  # one sample state, at a given 
 
 **Testing.** Every pull request runs the full test suite with a coverage floor and builds
 the Flatpak. Every screen and state can be screenshotted headlessly and compared before and after with the
-[visual QA harness](linux-rust/tools/visual-qa/README.md). Hardware test steps for a release are in [`TESTING.md`](linux-rust/docs/TESTING.md),
+[visual QA harness](linux-rust/tools/visual-qa/README.md), which also plays ten everyday
+[journeys](linux-rust/docs/JOURNEYS.md) on a test clock and records every frame of every
+animation. The look and motion rules are in [`DESIGN.md`](linux-rust/docs/DESIGN.md). Hardware test steps for a release are in [`TESTING.md`](linux-rust/docs/TESTING.md),
 and every change is listed in the [changelog](linux-rust/CHANGELOG.md).
 
 **Contributing.** Bug reports, ideas and pull requests are welcome in

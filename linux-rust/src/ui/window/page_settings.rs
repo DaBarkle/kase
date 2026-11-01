@@ -219,7 +219,9 @@ impl App {
     }
 
     pub(super) fn rename_row<'a>(&'a self, d: &'a DeviceSnapshot) -> Element<'a, Message> {
-        let can_rename = format::controls_enabled(d) && !self.rename.trim().is_empty();
+        let new_name = self.rename.trim();
+        let can_rename =
+            format::controls_enabled(d) && !new_name.is_empty() && new_name != d.name.trim();
         let mut col = column![
             text("Name").size(14).font(style::INTER_MEDIUM),
             row![
@@ -243,7 +245,12 @@ impl App {
                             left: 14.0,
                             right: 14.0,
                         })
-                        .style(style::secondary)
+                        // Looks ready (accent) as soon as there is a new name to save.
+                        .style(if can_rename {
+                            style::primary
+                        } else {
+                            style::secondary
+                        })
                         .on_press_maybe(can_rename.then_some(Message::RenameSubmit))
                 ),
             ]

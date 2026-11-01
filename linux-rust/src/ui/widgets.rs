@@ -507,8 +507,9 @@ pub fn gauge_view<'a, M: 'a>(g: &Gauge, size: f32, motion: GaugeMotion) -> Eleme
 
     if let Some(c) = &g.caption {
         col = col.push(
-            // Two short lines fit under a ring better than one long one.
-            text(c.replacen("seen ", "seen\n", 1))
+            // One short line, so the rings' labels stay level (QA #12); the dimmed ring
+            // already says the reading is old, so "5 min ago" is enough.
+            text(c.strip_prefix("last seen ").unwrap_or(c).to_string())
                 .size(11)
                 .line_height(1.25)
                 .width(Length::Fill)
@@ -522,10 +523,7 @@ pub fn gauge_view<'a, M: 'a>(g: &Gauge, size: f32, motion: GaugeMotion) -> Eleme
 }
 
 /// Press feedback: down to 97% and back, a little springy.
-const PRESS: crate::ui::motion::Curve = crate::ui::motion::Curve {
-    response: 0.26,
-    damping: 0.6,
-};
+const PRESS: crate::ui::motion::Curve = crate::ui::motion::Curve::from(crate::ui::tokens::PRESS);
 
 /// Wraps content to draw it shifted by `offset` and covered by the page background at
 /// `cover` (0 = fully visible), for page transitions, and optionally to scale it to 97%

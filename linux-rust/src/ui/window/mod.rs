@@ -35,7 +35,8 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{Mutex, RwLock};
 
-const WINDOW_SIZE: Size = Size::new(420.0, 640.0);
+/// Tall enough for every AirPods page without scrolling (docs/DESIGN.md).
+const WINDOW_SIZE: Size = Size::new(420.0, 700.0);
 /// How long an optimistic control change is shown before we fall back to the device's state.
 const PENDING_FOR: Duration = Duration::from_secs(4);
 /// The supervisor needs a moment to find the adapter; don't flash "unavailable" at startup.
@@ -266,10 +267,7 @@ enum Anim {
 /// The page slides in from this far, in the direction of the new tab.
 const PAGE_SLIDE: f32 = 30.0;
 /// The page's slide: gentle, a touch of overshoot.
-const PAGE: motion::Curve = motion::Curve {
-    response: 0.42,
-    damping: 0.86,
-};
+const PAGE: motion::Curve = motion::Curve::from(crate::ui::tokens::SNAPPY);
 /// Rings fill one after another on connect, this far apart.
 const RING_STAGGER: Duration = Duration::from_millis(80);
 /// One trip of the light round a charging ring (under Apple's two seconds).
@@ -558,10 +556,18 @@ impl App {
         let mode = self.snap.primary().and_then(|d| self.mode_index(d));
         let reduced = self.settings.reduces_motion();
         motion::set_reduced_ui(reduced);
-        let art = self.window.is_some()
-            && self.tab == Tab::AirPods
-            && self.primary().is_some_and(has_art);
-        self.art.sync(art, reduced, now);
+        // Live AirPods open the case; put away or out of range, it stays shut (QA #3).
+        let art = self
+            .primary()
+            .filter(|d| self.window.is_some() && self.tab == Tab::AirPods && has_art(d))
+            .map(|d| {
+                if d.is_connected() {
+                    crate::ui::anim::Clip::Open
+                } else {
+                    crate::ui::anim::Clip::Closed
+                }
+            });
+        self.art.show(art, reduced, now);
         let m = &mut self.motion;
         m.reduced = reduced;
         let tab = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0);
