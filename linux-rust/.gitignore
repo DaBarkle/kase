@@ -5,3 +5,7 @@ build-dir
 vendor
 .cargo
 .flatpak-builder
+
+# Python bytecode
+__pycache__/
+*.pyc

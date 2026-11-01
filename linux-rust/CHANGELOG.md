@@ -6,6 +6,21 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-01
+
+### Fixed
+- **The pods no longer pass through the case on the first connect of the day.** They
+  started spiralling while still in the case and swung through its walls and the open lid;
+  now they lift straight out of their wells first and only spin once clear. ([#59])
+- **The pods sit properly in the case.** They overlapped each other in the open case and
+  the lid brushed through them as it opened; they now sit side by side in their own wells,
+  in all three animations. Putting them away turns them above the wells and drops them
+  straight in. ([#59])
+
+### Added
+- `tools/render3d/collide.py` checks every frame of every animation for parts passing
+  through each other; all three clips pass. ([#59])
+
 ## [1.0.0] - 2026-11-01
 
 Kase 1.0: a calm island, two new 3D moments for AirPods 4, one shared look, and steadier
@@ -605,7 +620,8 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 ### Fixed
 - Audio no longer stays silent after the AirPods reconnect ("walked away and came back").
 
-[Unreleased]: https://github.com/DaBarkle/kase/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/DaBarkle/kase/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/DaBarkle/kase/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/DaBarkle/kase/compare/v0.11.0...v1.0.0
 [0.11.0]: https://github.com/DaBarkle/kase/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/DaBarkle/kase/compare/v0.9.6...v0.10.0
@@ -670,3 +686,4 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#55]: https://github.com/DaBarkle/kase/pull/55
 [#56]: https://github.com/DaBarkle/kase/pull/56
 [#57]: https://github.com/DaBarkle/kase/pull/57
+[#59]: https://github.com/DaBarkle/kase/pull/59

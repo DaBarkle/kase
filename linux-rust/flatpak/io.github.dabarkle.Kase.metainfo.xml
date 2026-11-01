@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.0.1" date="2026-11-01">
+      <description>
+        <p>The AirPods 4 animations no longer pass through the case: the pods lift straight out of their wells before they spin, sit side by side in the case, and the lid opens and closes clear of them.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-11-01">
       <description>
         <p>Kase 1.0. The island tells one calm story for each thing you do: it waits for the AirPods to finish reporting, joins alerts of the same kind, updates an open card in place and warns about a low battery once.</p>
