@@ -25,6 +25,19 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 ### Fixed
 - A second pod coming out while the first was already out wasn't treated as news by the
   island's settle window. ([#64])
+- **The status pill in the window no longer flickers.** While its width settled after a
+  change, its text vanished on every frame the width dipped a fraction under the text's
+  own width, so "Connected · Adaptive" blinked for about a second. The text now keeps its
+  full width and the pill only clips it. ([#65])
+
+### Documentation
+- **The README opens with the real thing in motion.** New 60 fps demos with transparent
+  backgrounds: the Purist island opening into its card as the 3D case spins open, its
+  alerts, the app window connecting and moving between tabs (in your GitHub theme), and
+  the 3D clips on their own. Outdated screenshots are gone.
+- `tools/visual-qa/showcase.py` records them from the real apps on the test clock, and
+  `kase --ui-demo` can now record every frame of the window (`src/ui/window/record.rs`).
+  It checks every encoded frame against the recording and catches one-frame blinks. ([#65])
 
 ## [1.0.4] - 2026-11-01
 
@@ -737,6 +750,7 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#56]: https://github.com/DaBarkle/kase/pull/56
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
+[#65]: https://github.com/DaBarkle/kase/pull/65
 [#64]: https://github.com/DaBarkle/kase/pull/64
 [#62]: https://github.com/DaBarkle/kase/pull/62
 [#61]: https://github.com/DaBarkle/kase/pull/61

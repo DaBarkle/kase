@@ -149,6 +149,10 @@ fn legacy_stream(key: &RxKey) -> impl Stream<Item = BluetoothUIMessage> + use<> 
 pub enum Message {
     Hub(AppSnapshot),
     Legacy(BluetoothUIMessage),
+    /// Test clock (`record`): step to this frame, capture it, save it.
+    RecFrame,
+    RecCapture,
+    RecShot(window::Screenshot),
     WindowOpened(window::Id),
     WindowClosed(window::Id),
     SystemTheme(iced::theme::Mode),
@@ -340,6 +344,8 @@ pub struct App {
     rename_status: Option<String>,
     /// devices.json (serials, firmware), loaded off the UI thread.
     saved: HashMap<String, DeviceData>,
+    /// Demo on the test clock only: records every frame (`record`).
+    rec: Option<record::Recorder>,
 }
 
 fn load_window_icon() -> Option<window::Icon> {
@@ -411,6 +417,11 @@ impl App {
             experimental: demo.then_some(false),
             rename_status: None,
             saved: HashMap::new(),
+            rec: if demo {
+                record::Recorder::from_env()
+            } else {
+                None
+            },
         };
         let theme = iced::system::theme().map(Message::SystemTheme);
         let open = if start_minimized {
@@ -541,10 +552,92 @@ impl App {
         }
     }
 
+    /// Test clock: plays the steps due now; the frame is drawn at this frame's time and
+    /// captured once `update` has synced every spring to it.
+    fn rec_frame(&mut self) -> Task<Message> {
+        let Some(rec) = &mut self.rec else {
+            return Task::none();
+        };
+        if !rec.started {
+            rec.started = true;
+            crate::testclock::set_zero();
+        }
+        let steps = rec.due(crate::testclock::elapsed_ms());
+        let mut tasks = vec![];
+        for step in steps {
+            match step {
+                record::Step::Tab(name) => {
+                    if let Some(tab) = Tab::from_name(&name) {
+                        tasks.push(self.handle(Message::SelectTab(tab)));
+                    }
+                }
+                record::Step::Scenario(name) => {
+                    crate::ui::demo::seed(&self.hub, &name);
+                    tasks.push(self.handle(Message::Hub(self.hub.snapshot())));
+                }
+                record::Step::Mode(name) => {
+                    let mode = match name.to_ascii_lowercase().as_str() {
+                        "off" => Some(ListeningMode::Off),
+                        "transparency" => Some(ListeningMode::Transparency),
+                        "adaptive" => Some(ListeningMode::Adaptive),
+                        "noise_cancellation" => Some(ListeningMode::NoiseCancellation),
+                        _ => None,
+                    };
+                    if let Some(mode) = mode {
+                        tasks.push(self.handle(Message::SetMode(mode)));
+                    }
+                }
+                record::Step::Appearance(name) => {
+                    self.settings.appearance = match name.to_ascii_lowercase().as_str() {
+                        "light" => Appearance::Light,
+                        "dark" => Appearance::Dark,
+                        _ => Appearance::System,
+                    };
+                }
+            }
+        }
+        tasks.push(Task::done(Message::RecCapture));
+        Task::batch(tasks)
+    }
+
+    /// Saves the frame, then moves the clock on: one step while anything moves, or
+    /// straight to the next step while the window is at rest.
+    fn rec_saved(&mut self, shot: window::Screenshot) -> Task<Message> {
+        let now = self.clock;
+        let animating = self.motion.is_animating(now) || self.sheen_running() || self.art.playing();
+        let Some(rec) = &self.rec else {
+            return Task::none();
+        };
+        let name = crate::testclock::save(&shot, "");
+        let t_ms = crate::testclock::elapsed_ms();
+        crate::testclock::log_frame(&serde_json::json!({
+            "frame": crate::testclock::frame(),
+            "t_ms": (t_ms * 1000.0).round() / 1000.0,
+            "tab": self.tab.label(),
+            "status": self.shown_status.as_ref().map(|s| format!("{} | {:?}", s.headline, s.detail)),
+            "prev_status": self.prev_status.as_ref().map(|s| s.headline.clone()),
+            "animating": animating,
+            "files": name.map(|n| serde_json::json!({ "window": n })),
+        }));
+        if rec.past_end(t_ms) || crate::testclock::frame() >= crate::testclock::max_frames() {
+            info!("recording done: {t_ms:.0} ms");
+            return iced::exit();
+        }
+        let next_ms = rec.next_ms();
+        crate::testclock::advance();
+        if !animating {
+            let ahead = (next_ms - crate::testclock::elapsed_ms()).max(0.0);
+            crate::testclock::skip_to(
+                crate::testclock::now() + Duration::from_secs_f64(ahead / 1000.0),
+            );
+        }
+        Task::done(Message::RecFrame)
+    }
+
     fn update(&mut self, message: Message) -> Task<Message> {
         self.clock = match message {
             Message::Frame(at) => at,
-            _ => Instant::now(),
+            _ => crate::testclock::now(),
         };
         let task = self.handle(message);
         self.sync_motion();
@@ -795,13 +888,24 @@ impl App {
                 self.motion.reset();
                 self.last_status = None;
                 self.last_charging.clear();
-                if self.demo {
+                if self.rec.is_some() {
+                    // Give the compositor a moment to map the window before frame zero.
+                    Task::perform(tokio::time::sleep(Duration::from_millis(800)), |_| {
+                        Message::RecFrame
+                    })
+                } else if self.demo {
                     Task::none()
                 } else {
                     Task::perform(motion::probe_system(), Message::SystemMotion)
                 }
             }
             Message::Frame(_) => Task::none(),
+            Message::RecFrame => self.rec_frame(),
+            Message::RecCapture => match self.window {
+                Some(id) if self.rec.is_some() => window::screenshot(id).map(Message::RecShot),
+                _ => Task::none(),
+            },
+            Message::RecShot(shot) => self.rec_saved(shot),
             Message::WindowClosed(id) => {
                 // Closing the window keeps Kase running in the tray.
                 if self.window == Some(id) {
@@ -1073,6 +1177,7 @@ impl App {
                 _ => None,
             }),
             if self.window.is_some()
+                && self.rec.is_none()
                 && (self.motion.is_animating(self.clock)
                     || self.sheen_running()
                     || self.art.playing())
@@ -1234,6 +1339,7 @@ mod controls;
 mod page_airpods;
 mod page_island;
 mod page_settings;
+mod record;
 
 use controls::*;
 use page_airpods::{has_art, pill_width};
