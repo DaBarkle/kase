@@ -56,6 +56,8 @@ class Shot:
     bg: str = "dark"
     # Frame burst for animations: seconds to record from launch (0 = a settled still).
     burst: float = 0.0
+    # Seconds to wait before looking for a settled frame.
+    wait: float = 3.5
     note: str = ""
 
 
@@ -84,10 +86,11 @@ OVERLAY_STEPS = [
 
 
 def overlay(name, step=0, style="purist", size="medium", extra=(), bg="dark", burst=0.0,
-            note=""):
+            note="", wait=3.5):
     argv = [str(BIN / "kase-overlay"), "--demo", "--step", str(step), "--style", style,
             "--size", size, *extra]
-    return Shot(name=name, group="island", argv=argv, bg=bg, burst=burst, note=note)
+    return Shot(name=name, group="island", argv=argv, bg=bg, burst=burst, note=note,
+                wait=wait)
 
 
 def scenarios() -> list[Shot]:
@@ -114,7 +117,7 @@ def scenarios() -> list[Shot]:
     for size in ("small", "medium", "large", "extra_large"):
         s.append(overlay(f"island-size-{size}", size=size))
     s.append(overlay("island-compact", extra=["--demo-compact"],
-                     note="compact rest state after the first expand"))
+                     note="compact rest state after the first expand", wait=8.0))
     s.append(overlay("island-on-light", bg="light"))
     s.append(overlay("island-on-busy", bg="busy"))
     s.append(overlay("quicklook", extra=["--quick-look"]))
@@ -249,8 +252,7 @@ def same(a: Image.Image, b: Image.Image) -> bool:
     return ImageChops.difference(a, b).getbbox() is None
 
 
-def run_shot(sway: Sway, shot: Shot, out: Path, tmp: Path, timeout: float,
-             min_wait: float = 3.5) -> dict:
+def run_shot(sway: Sway, shot: Shot, out: Path, tmp: Path, timeout: float) -> dict:
     bg = sway.set_background(shot.bg, tmp / "busy.png")
     home = tmp / ("home-" + shot.name)
     cfg = home / ".config" / "kase"
@@ -300,10 +302,10 @@ def run_shot(sway: Sway, shot: Shot, out: Path, tmp: Path, timeout: float,
         else:
             # Entrance animations (ring fill, digit roll, 3D case) run ~2.5 s after the
             # first frame, so wait at least that long, then for 3 identical grabs.
-            time.sleep(min_wait)
+            time.sleep(shot.wait)
             prev = sway.grab(tmp / "a.png")
             settled, still = False, 0
-            while time.monotonic() - t0 < timeout:
+            while time.monotonic() - t0 < shot.wait + timeout:
                 time.sleep(0.3)
                 cur = sway.grab(tmp / "b.png")
                 if same(prev, cur) and (bg is None or content_bbox(cur, bg, 0) is not None):
