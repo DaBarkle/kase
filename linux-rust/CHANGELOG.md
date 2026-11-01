@@ -6,6 +6,12 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+### Fixed
+- **A Disconnect pressed just before quitting is remembered.** Kase waits 3 s before saving
+  a Disconnect (so switching Bluetooth off isn't mistaken for one); quitting inside that
+  window used to lose it, and the AirPods reconnected on the next start. Kase now saves it
+  on the way out whenever Bluetooth is still on.
+
 ## [0.11.0] - 2026-11-01
 
 ### Added
