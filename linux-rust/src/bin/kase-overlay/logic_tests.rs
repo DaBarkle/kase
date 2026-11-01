@@ -1,7 +1,7 @@
 //! When the island shows what, and that every transition finishes and stops drawing.
 
 use super::*;
-use kase::overlay_protocol::{ListeningMode, OverlayPosition};
+use kase::overlay_protocol::{ListeningMode, MicChoice, OverlayPosition};
 
 fn comp(level: u8, charging: bool, present: bool) -> Option<ComponentState> {
     Some(ComponentState {
@@ -28,7 +28,9 @@ fn alert(a: Alert) -> Option<Content> {
     Some(Content::Alert(a))
 }
 
+/// Applies a state and reacts at once (the settle window has its own tests).
 fn state(c: &mut Controller, s: OverlayState, at: Instant) {
+    c.settle_at_once = true;
     c.apply(OverlayCommand::State { state: s }, at);
 }
 
@@ -154,7 +156,6 @@ fn route_and_noise_control_changes_alert() {
 
 #[test]
 fn mic_switch_changes_pop_an_alert() {
-    use kase::overlay_protocol::MicChoice;
     let mut desk = buds(80, 75, 40);
     desk.mic = Some(MicChoice::Desk);
     desk.listening_mode = Some(ListeningMode::NoiseCancellation);
@@ -705,7 +706,8 @@ fn purist_shakes_when_the_mic_is_unavailable() {
     let mut c = purist();
     let mut s = buds(80, 75, 40);
     state(&mut c, s.clone(), t0);
-    let (_, t1) = run(&mut c, t0, 2500);
+    // After the connect card has gone (an open card would say it on its second line).
+    let (_, t1) = run(&mut c, t0, 4500);
     s.mic_failures = 1;
     state(&mut c, s, t1);
     assert!(c.motion.shake.velocity != 0.0, "the island shakes its head");
@@ -832,4 +834,220 @@ fn reduce_motion_snaps_the_shape_and_lights_nothing() {
     assert_eq!(c.motion.sheen_phase(), None);
     let (_, t1) = run(&mut c, t0, 1500);
     assert!(!c.is_animating(t1), "only a short fade, then still");
+}
+
+// ---------------------------------------------------------------------------
+// Calm island: one action, one presentation (docs/JOURNEYS.md)
+// ---------------------------------------------------------------------------
+
+/// A controller that has shown `s` and folded away again.
+fn settled_on(s: &OverlayState) -> (Controller, Instant) {
+    let t0 = Instant::now();
+    let mut c = Controller::default();
+    state(&mut c, s.clone(), t0);
+    let (_, t) = run(&mut c, t0, 6000);
+    assert_eq!(c.target(t), None);
+    c.settle_at_once = false;
+    (c, t)
+}
+
+fn raw(c: &mut Controller, s: &OverlayState, at: Instant) {
+    c.apply(OverlayCommand::State { state: s.clone() }, at);
+}
+
+#[test]
+fn a_burst_is_judged_once_it_settles() {
+    let mut s = buds(80, 75, 40);
+    let (mut c, t) = settled_on(&s);
+    s.left.as_mut().unwrap().out_of_ear = true;
+    raw(&mut c, &s, t);
+    s.left.as_mut().unwrap().charging = true;
+    raw(&mut c, &s, t + Duration::from_millis(60));
+    // Repeats with the same values don't hold it back.
+    raw(&mut c, &s, t + Duration::from_millis(200));
+    c.tick(t + Duration::from_millis(300));
+    assert_eq!(
+        c.target(t + Duration::from_millis(300)),
+        None,
+        "still settling"
+    );
+    let at = t + Duration::from_millis(361);
+    c.tick(at);
+    assert_eq!(
+        c.target(at),
+        alert(Alert::Charging(Parts {
+            left: true,
+            ..Default::default()
+        }))
+    );
+}
+
+#[test]
+fn left_then_right_charging_is_one_alert() {
+    let mut s = buds(80, 75, 40);
+    let (mut c, t) = settled_on(&s);
+    s.left = comp(80, true, true);
+    raw(&mut c, &s, t);
+    let (_, t) = run(&mut c, t, 1000);
+    s.right = comp(75, true, true);
+    raw(&mut c, &s, t);
+    let (_, t) = run(&mut c, t, 400);
+    assert_eq!(
+        c.target(t),
+        alert(Alert::Charging(Parts {
+            left: true,
+            right: true,
+            ..Default::default()
+        }))
+    );
+    assert_eq!(c.headline(t), "AirPods charging");
+}
+
+#[test]
+fn the_case_level_arriving_is_not_news() {
+    let mut s = buds(80, 75, 40);
+    s.case = Some(ComponentState {
+        level: 40,
+        present: false,
+        stale: true,
+        ..Default::default()
+    });
+    let (mut c, t) = settled_on(&s);
+    s.case = comp(41, false, true);
+    raw(&mut c, &s, t);
+    let (_, t) = run(&mut c, t, 1000);
+    assert_eq!(c.target(t), None);
+}
+
+#[test]
+fn putting_both_away_shows_the_case_card_and_the_lid_closing_stays_quiet() {
+    let mut s = buds(80, 75, 40);
+    let (mut c, t) = settled_on(&s);
+    s.left = comp(80, true, true);
+    s.right = comp(75, true, true);
+    s.in_case = true;
+    raw(&mut c, &s, t);
+    let (_, t) = run(&mut c, t, 500);
+    assert_eq!(c.target(t), Some(Content::Expanded));
+    assert_eq!(c.headline(t), "Case open");
+    let (_, t) = run(&mut c, t, 3200);
+    assert_eq!(c.target(t), None, "folds about 3 s later");
+    s.connected = false;
+    s.in_case = false;
+    raw(&mut c, &s, t);
+    let (_, t) = run(&mut c, t, 500);
+    assert_eq!(c.target(t), None, "no Disconnected after putting them away");
+}
+
+#[test]
+fn an_open_card_updates_in_place() {
+    let mut s = buds(80, 75, 40);
+    let t0 = Instant::now();
+    let mut c = Controller::default();
+    state(&mut c, s.clone(), t0);
+    let (_, t) = run(&mut c, t0, 1000);
+    assert_eq!(c.target(t), Some(Content::Expanded));
+    s.listening_mode = Some(ListeningMode::Transparency);
+    state(&mut c, s, t);
+    assert_eq!(c.target(t), Some(Content::Expanded), "the card stays");
+    assert_eq!(c.headline(t), "Transparency");
+    let (_, t2) = run(&mut c, t, 2900);
+    assert_eq!(
+        c.target(t2),
+        Some(Content::Expanded),
+        "kept 3 s after the change"
+    );
+}
+
+#[test]
+fn a_new_presentation_waits_for_the_minimum_time() {
+    let mut s = buds(80, 75, 40);
+    s.mic = Some(MicChoice::Desk);
+    s.listening_mode = Some(ListeningMode::Off);
+    let (mut c, t) = settled_on(&s);
+    c.settle_at_once = true;
+    s.listening_mode = Some(ListeningMode::Transparency);
+    state(&mut c, s.clone(), t);
+    let shown = c.target(t);
+    s.mic = Some(MicChoice::AirPods);
+    s.listening_mode = Some(ListeningMode::Transparency);
+    let t1 = t + Duration::from_millis(500);
+    state(&mut c, s, t1);
+    assert_eq!(c.target(t1), shown, "the first stays readable");
+    let (_, t2) = run(&mut c, t1, 800);
+    assert_eq!(c.target(t2), alert(Alert::Mic(MicChoice::AirPods)));
+}
+
+#[test]
+fn quick_noise_control_changes_are_one_alert() {
+    let mut s = buds(80, 75, 40);
+    s.listening_mode = Some(ListeningMode::Off);
+    let (mut c, t) = settled_on(&s);
+    c.settle_at_once = true;
+    let mut at = t;
+    for m in [
+        ListeningMode::Transparency,
+        ListeningMode::Adaptive,
+        ListeningMode::NoiseCancellation,
+    ] {
+        s.listening_mode = Some(m);
+        state(&mut c, s.clone(), at);
+        let (_, t) = run(&mut c, at, 700);
+        at = t;
+    }
+    assert_eq!(
+        c.target(at),
+        alert(Alert::Listening(ListeningMode::NoiseCancellation))
+    );
+}
+
+#[test]
+fn a_wobbling_level_warns_once() {
+    let mut s = buds(22, 75, 40);
+    let (mut c, t) = settled_on(&s);
+    c.settle_at_once = true;
+    s.left = comp(20, false, true);
+    state(&mut c, s.clone(), t);
+    assert!(matches!(c.target(t), Some(Content::Alert(Alert::Low(_)))));
+    let (_, t) = run(&mut c, t, 6000);
+    s.left = comp(21, false, true);
+    state(&mut c, s.clone(), t);
+    s.left = comp(20, false, true);
+    state(&mut c, s.clone(), t);
+    assert_eq!(c.target(t), None, "no second warning for a wobble");
+    s.left = comp(10, false, true);
+    state(&mut c, s.clone(), t);
+    assert!(
+        matches!(c.target(t), Some(Content::Alert(Alert::Low(_)))),
+        "red still comes"
+    );
+    let (_, t) = run(&mut c, t, 6000);
+    s.left = comp(30, true, true);
+    state(&mut c, s.clone(), t);
+    let (_, t) = run(&mut c, t, 6000);
+    s.left = comp(20, false, true);
+    state(&mut c, s, t);
+    assert!(
+        matches!(c.target(t), Some(Content::Alert(Alert::Low(_)))),
+        "re-armed by charging"
+    );
+}
+
+#[test]
+fn the_case_going_on_a_charger_is_told() {
+    let mut s = buds(80, 75, 40);
+    s.left = comp(80, true, true);
+    s.right = comp(75, true, true);
+    s.in_case = true;
+    let (mut c, t) = settled_on(&s);
+    c.settle_at_once = true;
+    s.case = comp(40, true, true);
+    state(&mut c, s, t);
+    assert_eq!(
+        c.target(t),
+        alert(Alert::Charging(Parts {
+            case: true,
+            ..Default::default()
+        }))
+    );
 }

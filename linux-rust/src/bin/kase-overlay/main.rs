@@ -22,6 +22,7 @@ mod probe;
 mod purist;
 mod quick;
 mod record;
+mod settle;
 mod spring;
 mod view;
 
