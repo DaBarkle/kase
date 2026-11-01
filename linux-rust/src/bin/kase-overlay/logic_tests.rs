@@ -1147,6 +1147,27 @@ mod live {
     }
 
     #[test]
+    fn the_lid_shutting_over_worn_pods_plays_on_the_open_card() {
+        use Pod::{Out, Seated};
+        let t0 = Instant::now();
+        let mut c = live_controller(OverlayConfig::default());
+        state(&mut c, case(Lid::Open, Seated, Seated), t0);
+        state(&mut c, case(Lid::Open, Out, Out), ms(t0, 1000));
+        // Both in ears, then the lid shuts while the card is still up: it stays for the
+        // lid, then folds.
+        let t1 = ms(t0, 3000);
+        state(&mut c, case(Lid::Closed, Out, Out), t1);
+        assert_eq!(c.target(ms(t1, 1400)), Some(Content::Expanded));
+        assert_eq!(c.target(ms(t1, 1600)), None);
+        // Long after the card has gone, the lid shutting on worn pods pops nothing.
+        let t2 = ms(t1, 20_000);
+        state(&mut c, case(Lid::Open, Out, Out), t2);
+        let t3 = ms(t2, 20_000);
+        state(&mut c, case(Lid::Closed, Out, Out), t3);
+        assert_eq!(c.target(t3), None);
+    }
+
+    #[test]
     fn a_pod_coming_out_does_not_cut_the_live_card_short() {
         use Pod::{Out, Seated};
         let t0 = Instant::now();

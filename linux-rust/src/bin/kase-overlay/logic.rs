@@ -486,7 +486,10 @@ impl Controller {
         if card_ok && ((just_connected && state.in_case) || put_away) {
             ev = Some(Content::Expanded);
         }
-        let live_card = card_ok && crate::island::has_art_with(&state, self.live);
+        // The lid shutting over pods that are out still plays on the card it was showing.
+        let live_card = card_ok
+            && (crate::island::has_art_with(&state, self.live)
+                || (lid_shut && case_moved && self.popped(now) == Some(&Content::Expanded)));
         if live && live_card && (case_moved || just_connected) {
             ev = Some(Content::Expanded);
         }
@@ -531,6 +534,10 @@ impl Controller {
                 self.announce(&c, just_connected, now);
                 self.card_cap = None;
                 self.pop_up(c, now);
+                if live {
+                    let hold = (case_card && lid_shut).then(|| now + CASE_CARD_LID_SHUT);
+                    crate::island::hold_art(hold);
+                }
                 if case_card && let Some((_, until)) = &mut self.pop {
                     *until = now
                         + if live {

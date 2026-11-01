@@ -18,7 +18,7 @@ and AirPods that switch between your iPhone and your PC the way they do with a M
 
 <br>
 
-<img src="linux-rust/docs/media/hero.webp" width="560" alt="The slim island grows into a card as the case opens; a 3D AirPods 4 case turns a full circle, the lid opens and both pods spiral up out of it while rings fill for the left pod, the right pod and the case. The pods come out, the card folds into a slim island, then shows Transparency as the noise control mode changes">
+<img src="linux-rust/docs/media/hero.webp" width="560" alt="The slim island grows into a card as the case opens. The 3D AirPods 4 case turns a full circle and the lid opens; the right pod lifts out and hovers beside the case, then the left, as each is taken out. Rings show the left pod, the right pod and the case. The lid closes over the hovering pods, the card folds into a slim island, then shows Transparency as the noise control mode changes">
 
 <br><br>
 
@@ -47,6 +47,8 @@ feels like part of the desktop:
   AirPods by itself and has nothing to set up.
 - **It shows the truth.** Left, right and case levels come straight from the AirPods over
   Apple's own control channel, the same way an iPhone reads them.
+- **It follows your hands.** Open the case and the 3D case on screen opens with it. Each
+  AirPod lifts out as you take it and drops back in as you return it.
 - **It's made for gaming.** The island floats over fullscreen games, never touches them, and
   draws nothing at all while it rests.
 - **It's private.** No account and no telemetry. Kase never connects to the internet.
@@ -136,7 +138,7 @@ over a fullscreen game or video; turn it off with **Show a card when I open the 
 Island tab.
 
 <div align="center">
-<img src="linux-rust/docs/media/case-3d.webp" width="280" alt="The 3D AirPods 4 case on its own: it spins a full turn, the lid opens and the pods spiral up out of it; then the pods drop back in and the lid closes">
+<img src="linux-rust/docs/media/case-3d.webp" width="280" alt="The live 3D AirPods 4 case on its own: it turns a full circle and the lid opens; the right pod lifts out and hovers beside the case, then the left; the right drops back into its well, then the left, and the lid closes">
 </div>
 
 #### Styles
@@ -457,13 +459,18 @@ flowchart LR
    see levels when you open the case nearby.
 2. **One source of truth.** Everything the AirPods report goes into a single state hub. The
    window, tray and island all draw from it, so they never disagree.
-3. **The island** is a separate small process on the compositor's overlay layer. It only
+3. **The live case.** The AirPods report each pod as "first" or "second", not left or
+   right, and which one is first changes as you use them. Kase reads the order of each
+   battery report to tell them apart, and the BLE adverts give the lid. A small state
+   machine then plays the 3D case toward that truth: the lid first, then one pod at a
+   time, catching up smoothly on anything it missed.
+4. **The island** is a separate small process on the compositor's overlay layer. It only
    sets up the GPU while it's visible, and redraws only while it moves.
-4. **Fullscreen detection.** A tiny KWin script (on Plasma 5 and 6), or the compositor's
+5. **Fullscreen detection.** A tiny KWin script (on Plasma 5 and 6), or the compositor's
    window list on Sway, Hyprland and niri, tells Kase when the active window is fullscreen,
    so the island can turn translucent. It's a question to the window manager, not a look
    at the game.
-5. **Audio guard.** Kase watches the Bluetooth audio profile and your default output. If the
+6. **Audio guard.** Kase watches the Bluetooth audio profile and your default output. If the
    AirPods come back connected but silent, it renegotiates the connection and restores your
    output.
 

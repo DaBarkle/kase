@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.1.2" date="2026-11-02">
+      <description>
+        <p>Closing the lid with your AirPods in your ears now plays the 3D lid closing to the end, and the README demos show the live case.</p>
+      </description>
+    </release>
     <release version="1.1.1" date="2026-11-02">
       <description>
         <p>The live 3D case now always moves the AirPod you actually took out or put back.</p>

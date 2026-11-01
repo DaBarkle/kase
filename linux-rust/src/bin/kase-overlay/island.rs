@@ -339,7 +339,30 @@ pub fn live() -> bool {
 /// The case card shows the 3D case: AirPods 4, when the frames are installed. Live, while
 /// the case is in play (lid open, or a pod in it); otherwise with both pods put away.
 pub fn has_art(state: &OverlayState) -> bool {
-    has_art_with(state, live())
+    has_art_with(state, live()) || (live() && lid_shut_held(state))
+}
+
+/// Until when the live card keeps its art after the lid shut over pods that are out
+/// (nothing seated and the lid closed is otherwise "out of play"), so the lid closing
+/// plays to the end instead of the art vanishing as it starts.
+static ART_HOLD: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+pub fn hold_art(until: Option<std::time::Instant>) {
+    if let Ok(mut h) = ART_HOLD.lock() {
+        *h = until;
+    }
+}
+
+fn lid_shut_held(state: &OverlayState) -> bool {
+    let held = ART_HOLD
+        .lock()
+        .ok()
+        .and_then(|h| *h)
+        .is_some_and(|t| kase::testclock::now() < t);
+    held && state.connected
+        && state
+            .case_state
+            .is_some_and(|c| c.lid == kase::overlay_protocol::Lid::Closed)
 }
 
 /// `has_art` with the live mode given (the controller keeps its own copy, so tests don't
