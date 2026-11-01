@@ -27,6 +27,9 @@ just flatpak                        # build and install the Flatpak locally
 - Run `cargo fmt` and `cargo clippy --all-targets` before pushing.
 - After changing `Cargo.lock`, run `just flatpak-sources` so the offline Flatpak build still
   works.
+- For UI changes, run `just visual-qa before` on main and `just visual-qa after` on your branch,
+  then `just visual-diff`, and attach the changed shots to the pull request
+  ([`tools/visual-qa`](linux-rust/tools/visual-qa/README.md)).
 - Hardware behaviour (Bluetooth, audio, the overlay) can't be covered by CI; say in the pull
   request what you tested on real AirPods, following [`TESTING.md`](linux-rust/docs/TESTING.md).
 

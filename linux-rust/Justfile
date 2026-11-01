@@ -39,3 +39,12 @@ lint-packaging:
     desktop-file-validate {{DESKTOP_FILE}}
     appstreamcli validate --no-net flatpak/{{APP_ID}}.metainfo.xml
     shellcheck packaging/*.sh
+
+# Headless screenshots of every screen and state (see tools/visual-qa/README.md).
+# Example: just visual-qa before; ...change...; just visual-qa after; just visual-diff before after
+visual-qa name="latest":
+    cargo build --release
+    tools/visual-qa/kase_qa.py capture --out target/visual-qa/{{name}}
+
+visual-diff before="before" after="after":
+    tools/visual-qa/kase_qa.py compare target/visual-qa/{{before}} target/visual-qa/{{after}}
