@@ -12,7 +12,7 @@
 //! [5]  status flags                     [6]  pod battery nibbles (10% steps)
 //! [7]  hi: charging flags, lo: case nibble
 //! [8]  lid: bit3 = closed, bits0-2 = open counter
-//! [9]  colour                           [10] connection state
+//! [9]  colour                           [10] connection state (see [`Activity`])
 //! [len-16..] AES-128-ECB encrypted: [1],[2] pod levels (primary first), [3] case,
 //!            each byte bit7 = charging, bits0-6 = level, 0x7F = unknown.
 //! ```
@@ -209,6 +209,72 @@ pub fn decode_advert(data: &[u8], enc_key: Option<&[u8; 16]>) -> Option<BleBatte
     decode_proximity(data, decrypted.as_ref())
 }
 
+/// What the AirPods say they are doing with the device that has their audio, from the
+/// advert's connection-state byte ([10]). Values as decoded by LibrePods (Qt
+/// `linux/ble/blemanager.h`, Android `BLEManager.kt`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Activity {
+    /// Connected, nothing playing.
+    Idle,
+    /// Playing media (or a notification sound).
+    Music,
+    /// A phone call, ringing, or a call ending.
+    Call,
+}
+
+/// The advert's connection-state byte, when it is one we know.
+pub fn decode_activity(data: &[u8]) -> Option<Activity> {
+    if data.len() < HEADER_LEN || data[0] != PROXIMITY_PAIRING_TYPE || data[2] == 0x00 {
+        return None;
+    }
+    match data[10] {
+        0x04 => Some(Activity::Idle),
+        0x05 => Some(Activity::Music),
+        0x06 | 0x07 | 0x09 => Some(Activity::Call),
+        // 0x00 (disconnected), 0xFF (unknown) and anything new say nothing about playback.
+        _ => None,
+    }
+}
+
+/// How recent an advert must be to count: they arrive about once a second while a pod is
+/// out of the case.
+pub const ACTIVITY_FRESH: Duration = Duration::from_secs(4);
+
+/// What the AirPods' adverts last said, and since when they have been saying it.
+#[derive(Debug, Default)]
+pub struct ActivityTracker {
+    seen: HashMap<Address, (Activity, std::time::Instant, std::time::Instant)>,
+}
+
+impl ActivityTracker {
+    pub fn note(&mut self, addr: Address, activity: Activity, now: std::time::Instant) {
+        let since = match self.seen.get(&addr) {
+            Some(&(was, since, last)) if was == activity && now - last < ACTIVITY_FRESH => since,
+            _ => now,
+        };
+        self.seen.insert(addr, (activity, since, now));
+    }
+
+    /// The activity in the latest fresh advert and how long it has been steady.
+    pub fn get(&self, addr: Address, now: std::time::Instant) -> Option<(Activity, Duration)> {
+        let &(activity, since, last) = self.seen.get(&addr)?;
+        (now.saturating_duration_since(last) < ACTIVITY_FRESH)
+            .then(|| (activity, now.saturating_duration_since(since)))
+    }
+}
+
+static ACTIVITY: std::sync::LazyLock<std::sync::Mutex<ActivityTracker>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// What these AirPods' adverts say right now (see [`ActivityTracker::get`]); `None` when no
+/// fresh advert was heard (pods in the case, LE monitor not running, keys unknown).
+pub fn activity(addr: Address) -> Option<(Activity, Duration)> {
+    ACTIVITY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(addr, std::time::Instant::now())
+}
+
 #[derive(Debug, Clone)]
 struct DeviceKeys {
     public: Address,
@@ -350,6 +416,13 @@ fn handle_manufacturer_data(
         return true;
     };
     let enc_key = enc_key_for(enc_keys, public);
+    if let Some(activity) = decode_activity(apple) {
+        ACTIVITY.lock().unwrap_or_else(|e| e.into_inner()).note(
+            public,
+            activity,
+            std::time::Instant::now(),
+        );
+    }
     if let Some(reading) = decode_advert(apple, enc_key.as_ref()) {
         debug!("BLE reading for {}: {:?}", public, reading);
         if tx.send((public, reading)).is_err() {
@@ -713,6 +786,44 @@ mod tests {
         let r = decode_advert(&data, Some(&KEY)).unwrap();
         assert_eq!(r.left, Some((44, false)));
         assert_eq!(r.right, Some((33, false)));
+    }
+
+    #[test]
+    fn connection_state_byte_says_what_the_airpods_are_doing() {
+        let mut data = header(0x20, 0, 0, 0);
+        assert_eq!(decode_activity(&data), Some(Activity::Idle));
+        for (byte, want) in [
+            (0x05, Some(Activity::Music)),
+            (0x06, Some(Activity::Call)),
+            (0x07, Some(Activity::Call)),
+            (0x09, Some(Activity::Call)),
+            (0x00, None),
+            (0xFF, None),
+        ] {
+            data[10] = byte;
+            assert_eq!(decode_activity(&data), want, "byte {byte:#04x}");
+        }
+        assert_eq!(decode_activity(&data[..5]), None);
+    }
+
+    #[test]
+    fn activity_tracker_times_a_steady_state_and_forgets_old_adverts() {
+        let a: Address = "CC:22:FE:24:0C:70".parse().unwrap();
+        let t0 = std::time::Instant::now();
+        let s = Duration::from_secs;
+        let mut t = ActivityTracker::default();
+        assert_eq!(t.get(a, t0), None);
+        t.note(a, Activity::Music, t0);
+        t.note(a, Activity::Music, t0 + s(1));
+        t.note(a, Activity::Music, t0 + s(2));
+        assert_eq!(t.get(a, t0 + s(3)), Some((Activity::Music, s(3))));
+        // A change restarts the clock.
+        t.note(a, Activity::Idle, t0 + s(3));
+        assert_eq!(t.get(a, t0 + s(4)), Some((Activity::Idle, s(1))));
+        // No advert for a while: nothing is known, and a gap restarts the clock too.
+        assert_eq!(t.get(a, t0 + s(3) + ACTIVITY_FRESH), None);
+        t.note(a, Activity::Idle, t0 + s(20));
+        assert_eq!(t.get(a, t0 + s(20)), Some((Activity::Idle, s(0))));
     }
 
     #[test]
