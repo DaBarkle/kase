@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.0.4" date="2026-11-01">
+      <description>
+        <p>Holding the left stem swaps mics again while your iPhone is connected alongside the PC.</p>
+      </description>
+    </release>
     <release version="1.0.3" date="2026-11-01">
       <description>
         <p>Switching between the iPhone and the PC is reliable again: the PC no longer grabs the AirPods back while the iPhone plays, and the left stem hold swaps mics again after the AirPods come back from the iPhone.</p>

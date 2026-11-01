@@ -60,6 +60,18 @@ impl Alongside {
     }
 }
 
+/// Another connected host carries the AirPods' active mark (they send stem presses there)
+/// and this PC doesn't.
+pub(super) fn active_elsewhere(devices: &[ConnectedDevice], local: &str) -> bool {
+    let active = |d: &ConnectedDevice| d.info1 == CONNECTED && d.info2 & PLAYS != 0;
+    devices
+        .iter()
+        .any(|d| d.mac.eq_ignore_ascii_case(local) && !active(d))
+        && devices
+            .iter()
+            .any(|d| !d.mac.eq_ignore_ascii_case(local) && active(d))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +107,16 @@ mod tests {
             a.next(&playing, PC, t + Duration::from_secs(6)),
             Some([PC.into(), PHONE.into()])
         );
+    }
+
+    #[test]
+    fn active_elsewhere_reads_the_hosts_marks() {
+        // 2026-11-01 16:36: the iPhone marked active while this PC played.
+        let stuck = [host(PHONE, CONNECTED, 0x17), host(PC, CONNECTED, LISTED)];
+        assert!(active_elsewhere(&stuck, PC));
+        let fine = [host(PC, CONNECTED, 0x07), host(PHONE, CONNECTED, 0x11)];
+        assert!(!active_elsewhere(&fine, PC));
+        assert!(!active_elsewhere(&[host(PHONE, CONNECTED, 0x17)], PC));
     }
 
     #[test]

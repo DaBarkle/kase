@@ -325,6 +325,20 @@ pub(super) async fn handle_event(
                         .next(new_devices, &local, std::time::Instant::now())
                 })
                 .flatten();
+            // The AirPods send stem holds to the host they mark active, which can stay the
+            // iPhone while this PC plays (seen 2026-11-01 after a restart: the left hold
+            // changed noise mode). Claiming them moves the mark here.
+            if owns_audio(&ctx.hub, &mac_s) == Some(true)
+                && super::alongside::active_elsewhere(new_devices, &local)
+                && route
+                    .lock()
+                    .claimed_at
+                    .is_none_or(|t| t.elapsed() >= RECLAIM_GAP)
+            {
+                info!("Another device is marked active while this PC plays; claiming the AirPods");
+                route.lock().claimed_at = Some(Instant::now());
+                let _ = command_tx.send((ControlCommandIdentifiers::OwnsConnection, vec![0x01]));
+            }
             if let Some(hosts) = hosts {
                 info!("Stay alongside: sending priority list {hosts:?} (first one first)");
                 let aacp = aacp.clone();
@@ -484,3 +498,7 @@ pub(super) async fn handle_event(
         }
     }
 }
+
+/// Least time between two claims made to move the AirPods' active mark to this PC, so a
+/// device that keeps taking it back can't start a tug of war.
+const RECLAIM_GAP: Duration = Duration::from_secs(30);
