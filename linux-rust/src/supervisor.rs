@@ -158,6 +158,9 @@ fn lid_just_opened(prev: Option<(bool, Duration)>, open: bool) -> bool {
 #[derive(Debug, Clone, Copy)]
 pub enum Kick {
     DeviceChanged,
+    /// The PC is about to sleep: stop the device sessions (they put the desk mic, speakers
+    /// and volume back) and start none until it wakes.
+    Sleeping,
     Resumed,
     /// A known AirPods is advertising nearby; `in_use` when a pod is out of the case or in an ear.
     BleSeen(Address, bool),
@@ -209,6 +212,8 @@ struct AdapterState_ {
     away: HashMap<Address, Away>,
     /// Why BlueZ last dropped each device, until it connects again.
     drop_reason: HashMap<Address, DropReason>,
+    /// The PC is going to sleep: no new device sessions until it wakes.
+    asleep: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -573,7 +578,21 @@ async fn run_adapter(adapter: &Adapter, ctx: &mut SupervisorCtx) {
                 while let Ok(k) = ctx.kick_rx.try_recv() {
                     kicks.push(k);
                 }
+                if kicks.iter().any(|k| matches!(k, Kick::Sleeping))
+                    && !kicks.iter().any(|k| matches!(k, Kick::Resumed))
+                {
+                    st.asleep = true;
+                    let sessions: Vec<_> = st.running.drain().collect();
+                    for (addr, _) in &sessions {
+                        st.want_back(*addr);
+                    }
+                    futures::future::join_all(sessions.into_iter().map(|(_, dev)| stop_task(dev)))
+                        .await;
+                    sleep_monitor::ready_to_sleep();
+                    continue;
+                }
                 if kicks.iter().any(|k| matches!(k, Kick::Resumed)) {
+                    st.asleep = false;
                     info!("System resumed; restarting device sessions");
                     // Sleep often kills the L2CAP channel without a clean disconnect. Restart
                     // device tasks so they reconnect fresh instead of waiting on a dead socket.
@@ -658,7 +677,7 @@ async fn run_adapter(adapter: &Adapter, ctx: &mut SupervisorCtx) {
 /// playing; it only lets this PC take over when the iPhone lets go. Only for AirPods that
 /// dropped off this PC, never ones the user disconnected here.
 async fn maybe_reconnect(adapter: &Adapter, addr: Address, st: &mut AdapterState_) {
-    if st.running.contains_key(&addr) {
+    if st.asleep || st.running.contains_key(&addr) {
         return;
     }
     let Some(away) = st.away.get_mut(&addr) else {
@@ -794,7 +813,7 @@ async fn reconcile(
             }
             continue;
         }
-        if st.running.contains_key(&addr) || st.stopping.contains_key(&addr) {
+        if st.asleep || st.running.contains_key(&addr) || st.stopping.contains_key(&addr) {
             // Already handled, or the previous session is still cleaning up (next pass).
             continue;
         }

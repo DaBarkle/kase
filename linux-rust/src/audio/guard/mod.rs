@@ -661,8 +661,12 @@ impl<P: PulseApi, B: BluezApi> Guard<P, B> {
         snap.card_for(&self.mac_str).cloned()
     }
 
+    /// Waits for a profile change to show. Twice the usual wait: BlueZ holds back a codec
+    /// change that comes within 3 s of the previous one, so a change right after another
+    /// can take over 3 s to land. Giving up sooner made the guard try the next codec while
+    /// the first change was still on its way, and the two fought.
     async fn verify_profile(&self, profile: &str) -> bool {
-        let deadline = Instant::now() + self.cfg.verify_timeout;
+        let deadline = Instant::now() + self.cfg.verify_timeout * 2;
         loop {
             if let Some(card) = self.current_card().await
                 && card.active_profile.as_deref() == Some(profile)

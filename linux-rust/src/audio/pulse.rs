@@ -254,6 +254,19 @@ impl PulseApi for LibPulse {
     }
 
     async fn set_card_profile(&self, card_index: u32, profile: &str) -> Result<(), PulseError> {
+        // Through PipeWire first, without saving: a profile set over the PulseAudio
+        // protocol is always saved, and WirePlumber then restores a temporary one (the
+        // "off" of a rebuild, the fallback codec of a recovery) on every connect.
+        let object = blocking(move || card_object_id_sync(card_index, DEFAULT_DEADLINE))
+            .await
+            .ok()
+            .flatten();
+        if let Some(object) = object {
+            match unsaved::set_profile(object, profile).await {
+                Ok(()) => return Ok(()),
+                Err(e) => log::debug!("Unsaved profile change not possible ({e}); saving it"),
+            }
+        }
         let profile = profile.to_string();
         blocking(move || set_card_profile_sync(card_index, &profile, DEFAULT_DEADLINE)).await
     }
@@ -692,6 +705,104 @@ pub fn set_card_profile_sync(
     let mut introspect = conn.context.introspect();
     let _op = introspect.set_card_profile_by_index(card_index, profile, Some(cb));
     conn.wait_success("set card profile", &slot)
+}
+
+/// The PipeWire object id of a card (`object.id`), when the server is PipeWire.
+pub fn card_object_id_sync(card_index: u32, timeout: Duration) -> Result<Option<u32>, PulseError> {
+    let mut conn = Conn::open(Instant::now() + timeout)?;
+    let id: Rc<Cell<Option<Option<u32>>>> = Rc::default();
+    let slot = id.clone();
+    let introspect = conn.context.introspect();
+    let _op = introspect.get_card_info_by_index(card_index, move |r| match r {
+        ListResult::Item(item) => slot.set(Some(
+            item.proplist
+                .get_str("object.id")
+                .and_then(|s| s.parse().ok()),
+        )),
+        ListResult::End | ListResult::Error => {
+            if slot.get().is_none() {
+                slot.set(Some(None));
+            }
+        }
+    });
+    conn.run_until("card object id", |_| id.get().map(Ok))
+}
+
+/// Profile changes straight through PipeWire with `save: false`, using the host's
+/// `pw-dump` and `pw-cli` (through `flatpak-spawn --host` inside the Flatpak, which has
+/// no PipeWire socket of its own).
+mod unsaved {
+    use std::time::Duration;
+    use tokio::process::Command;
+
+    const LIMIT: Duration = Duration::from_secs(3);
+
+    fn command(args: &[&str]) -> Command {
+        let mut cmd = if crate::autostart::running_in_flatpak() {
+            let mut c = Command::new("flatpak-spawn");
+            c.arg("--host").args(args);
+            c
+        } else {
+            let mut c = Command::new(args[0]);
+            c.args(&args[1..]);
+            c
+        };
+        cmd.kill_on_drop(true).stdin(std::process::Stdio::null());
+        cmd
+    }
+
+    async fn run(args: &[&str]) -> Result<String, String> {
+        let out = tokio::time::timeout(LIMIT, command(args).output())
+            .await
+            .map_err(|_| format!("{} took too long", args[0]))?
+            .map_err(|e| format!("{}: {e}", args[0]))?;
+        if !out.status.success() {
+            return Err(format!("{} failed: {}", args[0], out.status));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    pub(super) async fn set_profile(object: u32, profile: &str) -> Result<(), String> {
+        let id = object.to_string();
+        let dump = run(&["pw-dump", &id]).await?;
+        let index = profile_index(&dump, object, profile)
+            .ok_or_else(|| format!("profile {profile} not found on object {object}"))?;
+        let param = format!("{{ index: {index}, save: false }}");
+        run(&["pw-cli", "set-param", &id, "Profile", &param]).await?;
+        Ok(())
+    }
+
+    /// The index of `profile` in the device's EnumProfile list, from `pw-dump` output.
+    pub(super) fn profile_index(dump: &str, object: u32, profile: &str) -> Option<u64> {
+        let objects: serde_json::Value = serde_json::from_str(dump).ok()?;
+        objects
+            .as_array()?
+            .iter()
+            .find(|o| o["id"].as_u64() == Some(object as u64))?["info"]["params"]["EnumProfile"]
+            .as_array()?
+            .iter()
+            .find(|p| p["name"].as_str() == Some(profile))?["index"]
+            .as_u64()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn finds_the_profile_index_in_pw_dump_output() {
+            let dump = r#"[{"id": 57, "type": "PipeWire:Interface:Device", "info": {"params": {
+                "EnumProfile": [
+                    {"index": 0, "name": "off"},
+                    {"index": 1, "name": "a2dp-sink"},
+                    {"index": 2, "name": "a2dp-sink-sbc"},
+                    {"index": 3, "name": "headset-head-unit"}
+                ]}}}]"#;
+            assert_eq!(super::profile_index(dump, 57, "a2dp-sink"), Some(1));
+            assert_eq!(super::profile_index(dump, 57, "off"), Some(0));
+            assert_eq!(super::profile_index(dump, 57, "a2dp-sink-aac"), None);
+            assert_eq!(super::profile_index(dump, 58, "off"), None);
+            assert_eq!(super::profile_index("not json", 57, "off"), None);
+        }
+    }
 }
 
 pub fn set_default_sink_sync(name: &str, timeout: Duration) -> Result<(), PulseError> {
