@@ -283,11 +283,13 @@ impl AdapterState_ {
 
     /// Remember Disconnects pressed here once the adapter is confirmed still on: switching
     /// Bluetooth off also closes links as "Local", and that must not stop reconnects for good.
-    fn settle_kept(&mut self, powered: bool) {
+    /// `now` settles every pending Disconnect at once, without waiting out [`KEEP_CONFIRM`]:
+    /// Kase is quitting, and the adapter being on right now is all the proof there will be.
+    fn settle_kept(&mut self, powered: bool, now: bool) {
         let due: Vec<Address> = self
             .pending_keep
             .iter()
-            .filter(|(_, t)| t.elapsed() >= KEEP_CONFIRM)
+            .filter(|(_, t)| now || t.elapsed() >= KEEP_CONFIRM)
             .map(|(a, _)| *a)
             .collect();
         for addr in &due {
@@ -305,6 +307,17 @@ impl AdapterState_ {
         }
         if powered && !due.is_empty() {
             disconnect_watch::save_kept_away(&self.kept_path, &self.kept_away);
+        }
+    }
+
+    /// BlueZ said why a link closed, and Kase is quitting before the next pass would have
+    /// noticed the session end on its own.
+    fn note_disconnect_at_quit(&mut self, addr: Address, reason: DropReason) {
+        self.drop_reason.insert(addr, reason);
+        if self.running.contains_key(&addr) {
+            self.note_lost(addr, false);
+        } else {
+            self.plan_reconnect(addr, false);
         }
     }
 
@@ -610,7 +623,7 @@ async fn run_adapter(adapter: &Adapter, ctx: &mut SupervisorCtx) {
             }
             _ = sweep.tick() => {
                 if !st.pending_keep.is_empty() {
-                    st.settle_kept(bounded(adapter.is_powered()).await == Some(true));
+                    st.settle_kept(bounded(adapter.is_powered()).await == Some(true), false);
                 }
                 for addr in st.due() {
                     maybe_reconnect(adapter, addr, &mut st).await;
@@ -619,6 +632,18 @@ async fn run_adapter(adapter: &Adapter, ctx: &mut SupervisorCtx) {
         }
     }
 
+    // A Disconnect pressed just before quitting must still be remembered: without this the
+    // AirPods would reconnect on the next start. BlueZ's reason may still be in the queue.
+    if QUIT.is_cancelled() {
+        while let Ok(kick) = ctx.kick_rx.try_recv() {
+            if let Kick::Disconnected(addr, reason) = kick {
+                st.note_disconnect_at_quit(addr, reason);
+            }
+        }
+        if !st.pending_keep.is_empty() {
+            st.settle_kept(bounded(adapter.is_powered()).await == Some(true), true);
+        }
+    }
     // In parallel: on quit every session restores its own state before the app exits.
     futures::future::join_all(st.running.drain().map(|(_, dev)| stop_task(dev))).await;
     for (_, h) in watched.drain() {
@@ -833,13 +858,13 @@ mod tests {
         st.drop_reason.insert(a, DropReason::Local);
         st.note_lost(a, false);
         assert!(st.away.is_empty(), "no reconnects after a Disconnect here");
-        st.settle_kept(true);
+        st.settle_kept(true, false);
         assert!(
             st.kept_away.is_empty(),
             "not saved before the adapter is confirmed on"
         );
         settled_now(&mut st);
-        st.settle_kept(true);
+        st.settle_kept(true, false);
         assert_eq!(
             disconnect_watch::load_kept_away(&st.kept_path),
             HashSet::from([a])
@@ -850,13 +875,61 @@ mod tests {
     }
 
     #[test]
+    fn a_disconnect_pressed_just_before_quitting_is_still_remembered() {
+        let a: Address = "CC:22:FE:24:0C:70".parse().unwrap();
+        let mut st = kept_state("quit");
+        st.drop_reason.insert(a, DropReason::Local);
+        st.note_lost(a, false);
+        // Quit well inside KEEP_CONFIRM, with Bluetooth still on.
+        st.settle_kept(true, true);
+        assert!(st.pending_keep.is_empty());
+        assert_eq!(
+            disconnect_watch::load_kept_away(&st.kept_path),
+            HashSet::from([a])
+        );
+        let _ = std::fs::remove_dir_all(st.kept_path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_disconnect_still_in_the_queue_at_quit_is_remembered() {
+        let a: Address = "CC:22:FE:24:0C:70".parse().unwrap();
+        let mut st = kept_state("queued");
+        st.running.insert(
+            a,
+            RunningDevice {
+                cancel: CancellationToken::new(),
+                handle: tokio::spawn(async {}),
+                started: Instant::now() - BOUNCE_LIMIT,
+            },
+        );
+        st.note_disconnect_at_quit(a, DropReason::Local);
+        st.settle_kept(true, true);
+        assert_eq!(
+            disconnect_watch::load_kept_away(&st.kept_path),
+            HashSet::from([a])
+        );
+        let _ = std::fs::remove_dir_all(st.kept_path.parent().unwrap());
+    }
+
+    #[test]
+    fn quitting_with_bluetooth_off_does_not_remember_a_disconnect() {
+        let a: Address = "CC:22:FE:24:0C:70".parse().unwrap();
+        let mut st = kept_state("quitoff");
+        st.drop_reason.insert(a, DropReason::Local);
+        st.note_lost(a, false);
+        st.settle_kept(false, true);
+        assert!(st.kept_away.is_empty() && st.pending_keep.is_empty());
+        assert!(!st.kept_path.exists());
+    }
+
+    #[test]
     fn switching_bluetooth_off_is_not_remembered_as_a_disconnect() {
         let a: Address = "CC:22:FE:24:0C:70".parse().unwrap();
         let mut st = kept_state("power");
         st.drop_reason.insert(a, DropReason::Local);
         st.note_lost(a, false);
         settled_now(&mut st);
-        st.settle_kept(false);
+        st.settle_kept(false, false);
         assert!(st.kept_away.is_empty() && st.pending_keep.is_empty());
         assert!(!st.kept_path.exists());
     }
