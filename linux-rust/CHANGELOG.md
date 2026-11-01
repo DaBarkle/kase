@@ -6,6 +6,26 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-02
+
+### Added
+- **The 3D case follows your AirPods live.** With AirPods 4 the case card's 3D case opens
+  when you open the lid, each pod lifts out and hovers when you take it, drops back in
+  when you return it, and the lid closes when you close it. The first open of the day
+  still spins. Changes of mind play back smoothly from where they are, and anything Kase
+  misses while the card is hidden is caught up without a jump. ([#64])
+- **Follow the case live** setting in the Island tab (on by default).
+- `tools/case-watch.py`, which shows what Kase sees of the case as it happens.
+
+### Changed
+- The case card comes back for each change while the case is in play and stays 6 s after
+  the last one (1.5 s after the lid shuts), instead of folding 2 s after a pod comes out.
+  ([#64])
+
+### Fixed
+- A second pod coming out while the first was already out wasn't treated as news by the
+  island's settle window. ([#64])
+
 ## [1.0.4] - 2026-11-01
 
 ### Fixed
@@ -717,6 +737,7 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#56]: https://github.com/DaBarkle/kase/pull/56
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
+[#64]: https://github.com/DaBarkle/kase/pull/64
 [#62]: https://github.com/DaBarkle/kase/pull/62
 [#61]: https://github.com/DaBarkle/kase/pull/61
 [#60]: https://github.com/DaBarkle/kase/pull/60
