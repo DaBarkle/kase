@@ -18,16 +18,14 @@ and AirPods that switch between your iPhone and your PC the way they do with a M
 
 <br>
 
-<img src="linux-rust/docs/media/hero.webp" width="560" alt="The island opens from a pill into a card as the case opens; a 3D AirPods 4 case turns a full circle, the lid opens and both pods spiral up out of it while rings fill for the left pod, the right pod and the case. The pods come out, the card folds into a slim island, then shows Transparency as the noise control mode changes">
+<img src="linux-rust/docs/media/hero.webp" width="560" alt="The slim island grows into a card as the case opens; a 3D AirPods 4 case turns a full circle, the lid opens and both pods spiral up out of it while rings fill for the left pod, the right pod and the case. The pods come out, the card folds into a slim island, then shows Transparency as the noise control mode changes">
 
 <br><br>
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="linux-rust/docs/media/window-light.webp">
-  <img src="linux-rust/docs/media/window-dark.webp" width="330" alt="The Kase window as the AirPods connect: the closed case opens with the pods rising out, the status pill turns green and the rings fill one after another while the numbers count up. Noise control moves to Transparency, then Adaptive; the Island and Settings tabs slide in, and it returns to AirPods">
+  <img src="linux-rust/docs/media/window-dark.webp" width="360" alt="The Kase window as the AirPods connect: the closed case opens with the pods rising out, the status pill turns green and the rings fill one after another while the numbers count up. Noise control moves to Transparency, then Adaptive; the Island and Settings tabs slide in, and it returns to AirPods">
 </picture>
-&nbsp;&nbsp;
-<img src="linux-rust/docs/media/case-3d.webp" width="300" alt="The 3D AirPods 4 case on its own: it spins a full turn, the lid opens and the pods spiral up out of it; then the pods drop back in and the lid closes">
 
 <sub>Every frame above is the real app, recorded frame by frame at 60 fps (see <a href="#recording-the-demos">Recording the demos</a>).</sub>
 
@@ -133,6 +131,10 @@ closing. Everything plays at your monitor's refresh rate (just the last frame wi
 the lid with the pods inside doesn't pop a *Disconnected* alert. The case card is never shown over a
 fullscreen game or video; turn it off with **Show a card when I open the case** in the
 Island tab.
+
+<div align="center">
+<img src="linux-rust/docs/media/case-3d.webp" width="280" alt="The 3D AirPods 4 case on its own: it spins a full turn, the lid opens and the pods spiral up out of it; then the pods drop back in and the lid closes">
+</div>
 
 #### Styles
 

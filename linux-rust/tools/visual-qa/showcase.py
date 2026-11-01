@@ -183,6 +183,24 @@ def encode(images: list[Image.Image], durations: list[int], out: Path, quality: 
             continue
         merged_imgs.append(img)
         merged_d.append(d)
+    blinked = blinks(merged_imgs)
+    if len(blinked) > MAX_HELD:
+        raise SystemExit(f"  {out.name}: something blinks for one frame at frames "
+                         f"{blinked[:10]} (see BLINK_ERROR)")
+    for i in blinked:
+        # A lone one-frame dropout (the glyph atlas growing mid-frame can blank a text
+        # layer once): hold the frame before instead, and say so.
+        print(f"  holding frame {i - 1} over a one-frame blink at frame {i}")
+        merged_imgs[i] = merged_imgs[i - 1]
+    if blinked:
+        imgs, ds = [], []
+        for img, d in zip(merged_imgs, merged_d):
+            if imgs and img is imgs[-1]:
+                ds[-1] += d
+                continue
+            imgs.append(img)
+            ds.append(d)
+        merged_imgs, merged_d = imgs, ds
     out.parent.mkdir(parents=True, exist_ok=True)
     merged_imgs[0].save(out, save_all=True, append_images=merged_imgs[1:],
                         duration=merged_d, loop=0, quality=quality, alpha_quality=100,
@@ -191,6 +209,83 @@ def encode(images: list[Image.Image], durations: list[int], out: Path, quality: 
     total = sum(merged_d) / 1000
     print(f"  {out.relative_to(ROOT)}: {len(merged_imgs)} frames, {total:.1f} s, "
           f"{out.stat().st_size / 1e6:.2f} MB")
+    bad = verify(out, merged_imgs)
+    if bad:
+        worst = max(bad, key=lambda b: b[1])
+        raise SystemExit(f"  {out.name}: {len(bad)} frames differ from what was recorded "
+                         f"(worst: frame {worst[0]}, tile error {worst[1]:.1f})")
+
+
+# A decoded frame may differ from its source by lossy noise (about 11 at quality 88),
+# never by more than this in any 16 px tile (mean absolute error, composited onto black
+# and onto white). A stale or missing element is far above it.
+MAX_TILE_ERROR = 24.0
+# A tile that changes by more than this for a single frame and then comes back is a
+# blink (the status pill text once vanished on alternate frames while its width settled).
+BLINK_ERROR = 24.0
+BLINK_TILES = 12
+# More blinks than this in one clip is a bug to fix in the app, not to paper over.
+MAX_HELD = 3
+
+
+def tile_error(a: Image.Image, b: Image.Image, tile: int = 16) -> Image.Image:
+    """Mean absolute error per tile, composited onto black and onto white (worst)."""
+    worst = None
+    for bg in ((0, 0, 0, 255), (255, 255, 255, 255)):
+        x = Image.new("RGBA", a.size, bg)
+        x.alpha_composite(a)
+        y = Image.new("RGBA", a.size, bg)
+        y.alpha_composite(b)
+        diff = ImageChops.difference(x.convert("RGB"), y.convert("RGB")).convert("L")
+        small = diff.resize((max(diff.width // tile, 1), max(diff.height // tile, 1)),
+                            Image.BOX)
+        worst = small if worst is None else ImageChops.lighter(worst, small)
+    return worst
+
+
+def blink_tiles(images: list[Image.Image], i: int) -> int:
+    """8 px tiles that were still, change at frame i and are back (and still) after."""
+    jump = tile_error(images[i - 1], images[i], 8)
+    if jump.getextrema()[1] <= BLINK_ERROR:
+        return 0
+    # Tiles that are the same the frame before (and the one before that) as for the two
+    # frames after: still, apart from what happens at frame i.
+    still = Image.new("L", jump.size, 255)
+    for j in (i - 2, i + 1, i + 2):
+        if 0 <= j < len(images):
+            same = tile_error(images[i - 1], images[j], 8)
+            still = ImageChops.multiply(still, same.point(lambda v: 255 if v < 2 else 0))
+    # Something crossing a still area within one frame looks the same; holding it costs
+    # one repeated frame, which nobody sees, so that is fine.
+    hit = ImageChops.multiply(jump.point(lambda v: 255 if v > BLINK_ERROR else 0), still)
+    return hit.histogram()[255]
+
+
+def blinks(images: list[Image.Image]) -> list[int]:
+    """Frames where a still part of the picture changes for one frame only.
+
+    Fast motion trips the tile test too, but over several frames in a row; a blink is
+    a lone frame (the status pill's text once vanished on alternate frames).
+    """
+    n = [0, 0] + [blink_tiles(images, i) for i in range(2, len(images) - 1)] + [0]
+    return [i for i in range(2, len(images) - 1)
+            if n[i] >= BLINK_TILES and n[i - 1] < BLINK_TILES and n[i + 1] < BLINK_TILES]
+
+
+def verify(path: Path, sources: list[Image.Image]) -> list[tuple[int, float]]:
+    """Decodes every frame and checks it against its source, tile by tile."""
+    im = Image.open(path)
+    if im.n_frames != len(sources):
+        raise SystemExit(f"  {path.name}: {im.n_frames} frames decoded, "
+                         f"{len(sources)} encoded")
+    bad = []
+    for i, src in enumerate(sources):
+        im.seek(i)
+        got = im.convert("RGBA")
+        err = tile_error(src, got).getextrema()[1]
+        if err > MAX_TILE_ERROR:
+            bad.append((i, err))
+    return bad
 
 
 def frame_durations(times: list[float], tail_ms: float) -> list[int]:
@@ -221,6 +316,11 @@ def build(clip: Clip, frames: Path) -> None:
         tf = ([(before[-1][0], float(clip.trim_ms))] if before else []) + [
             x for x in tf if x[1] > clip.trim_ms]
     if clip.kind == "island":
+        # Start on the first frame with the island on screen, end on the last one.
+        drawn = [i for i, (p, _) in enumerate(tf) if p is not None
+                 and Image.open(p).getchannel("A").getextrema()[1] > 8]
+        if drawn:
+            tf = tf[drawn[0]:drawn[-1] + 1]
         box = union_box([p for p, _ in tf], pad=24)
         blank = Image.new("RGBA", (box[2] - box[0], box[3] - box[1]), (0, 0, 0, 0))
         imgs = [scaled(Image.open(p).convert("RGBA").crop(box) if p else blank, clip.width)
