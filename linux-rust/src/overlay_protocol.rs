@@ -7,6 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::core::case_state::{CaseSource, CaseState, Lid, Pod};
+
 /// Exit code of the overlay when the compositor has no `zwlr_layer_shell_v1`
 /// (GNOME/Mutter) or there is no Wayland display at all. The client then stops
 /// retrying and the app falls back to desktop notifications.
@@ -109,6 +111,8 @@ pub struct OverlayConfig {
     pub size: OverlaySize,
     /// Pop the card for a few seconds when the AirPods connect from an open case.
     pub case_card: bool,
+    /// The case card's 3D case follows the real lid and pods, when the clips are installed.
+    pub live_case: bool,
     /// Reduce motion: the island fades instead of morphing, and nothing loops.
     pub reduce_motion: bool,
 }
@@ -125,6 +129,7 @@ impl Default for OverlayConfig {
             style: OverlayStyle::Purist,
             size: OverlaySize::Medium,
             case_card: true,
+            live_case: true,
             reduce_motion: false,
         }
     }
@@ -239,6 +244,9 @@ pub struct OverlayState {
     /// Connected with both pods put away in the case (the lid is open).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub in_case: bool,
+    /// Lid and per-pod (left/right) case state for the live case animation, while connected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub case_state: Option<CaseState>,
     /// The noise control modes these AirPods offer, in the window's order (tray quick look).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub modes: Vec<ListeningMode>,

@@ -17,9 +17,10 @@ python3 tools/render3d/encode.py /tmp/r/spin-open assets/anim/airpods4-spin-open
 | `rig.py` | Imports the model and adds empties for the spin, the lid hinge and each pod (seated or out, plus orbit, twirl, lift and outward drift), by node name |
 | `collide.py` | Checks every frame of a clip for parts passing through each other (pods, case, lid) and exits 1 if any do. The seated pose in `rig.py` was solved with it |
 | `springs.py` | Apple's spring formula for keyframes (same tokens as `src/ui/tokens.rs`) |
-| `shots.py` | The clips: `open`, `spin-open`, `put-away`. Pods always lift straight out of (and drop straight into) their wells; they only turn or spiral once clear. 144 fps, motion blur; `--preview` is 220 px and quick |
+| `shots.py` | The clips: `open`, `spin-open`, `put-away`, and the live case card's layers (`case-*`, `lid-open-*`, `lid-close-*`, `spin-lid-open`, `rise-L/R`, `sink-L/R`; the suffix names the pods baked into the case layer). Each pod layer is rendered alone with the case as a holdout, so the layers stack exactly. Pods always lift straight out of (and drop straight into) their wells; they only turn or spiral once clear. 144 fps, motion blur; `--preview` is 220 px and quick |
 | `encode.py` | Scales and places frames to line up with the case-open clip, writes WebP |
 
-Run `collide.py` on every clip you change before rendering. Final renders take about 7 to 10 s a frame at 440 px on a 4-core cloud machine (a
+Run `collide.py` on every clip you change before rendering. The live clips go to
+`assets/anim/airpods4-live/<clip>/` (encode each with `encode.py`). Final renders take about 7 to 10 s a frame at 440 px on a 4-core cloud machine (a
 237-frame clip is about 35 minutes). Which moment plays which clip is in
 `docs/JOURNEYS.md`; the player is `src/ui/anim.rs`.

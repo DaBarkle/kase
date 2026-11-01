@@ -1,4 +1,5 @@
 pub mod anim;
+pub mod case_pose;
 pub mod demo;
 pub mod format;
 pub mod messages;

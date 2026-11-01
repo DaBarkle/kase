@@ -105,6 +105,8 @@ modules:
       - install -Dm644 assets/anim/airpods4-open/*.webp -t ${FLATPAK_DEST}/share/kase/anim/airpods4-open/
       - install -Dm644 assets/anim/airpods4-spin-open/*.webp -t ${FLATPAK_DEST}/share/kase/anim/airpods4-spin-open/
       - install -Dm644 assets/anim/airpods4-put-away/*.webp -t ${FLATPAK_DEST}/share/kase/anim/airpods4-put-away/
+      # The live case card: one folder per clip (case, lid, each pod), see docs/JOURNEYS.md.
+      - for d in assets/anim/airpods4-live/*/; do install -Dm644 "$d"*.webp -t "${FLATPAK_DEST}/share/kase/anim/airpods4-live/$(basename "$d")/"; done
       - install -Dm644 LICENSE -t ${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/
     sources:
       - type: dir

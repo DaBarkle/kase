@@ -1083,3 +1083,164 @@ fn the_case_card_plays_the_clip_for_its_moment() {
     state(&mut c, inside, t);
     assert_eq!(c.case_clip, Clip::PutAway);
 }
+
+// ---------------------------------------------------------------------------
+// Live case card (the 3D case follows the lid and each pod)
+// ---------------------------------------------------------------------------
+
+mod live {
+    use super::*;
+    use kase::overlay_protocol::{CaseSource, CaseState, Lid, Pod};
+
+    fn live_controller(cfg: OverlayConfig) -> Controller {
+        let mut c = Controller::new(cfg);
+        c.live = true; // as when the clips are installed
+        c
+    }
+
+    fn case(lid: Lid, left: Pod, right: Pod) -> OverlayState {
+        OverlayState {
+            in_case: left == Pod::Seated && right == Pod::Seated,
+            case_state: Some(CaseState {
+                lid,
+                left,
+                right,
+                source: CaseSource::Aacp,
+                seq: 0,
+            }),
+            ..buds(80, 75, 40)
+        }
+    }
+
+    fn ms(t: Instant, ms: u64) -> Instant {
+        t + Duration::from_millis(ms)
+    }
+
+    #[test]
+    fn every_change_to_the_case_brings_the_card_back() {
+        use Pod::{Out, Seated};
+        let t0 = Instant::now();
+        let mut c = live_controller(OverlayConfig::default());
+        state(&mut c, case(Lid::Open, Seated, Seated), t0);
+        assert_eq!(c.target(t0), Some(Content::Expanded), "lid open on connect");
+        assert_eq!(c.target(ms(t0, 6100)), None, "folds after a while");
+
+        // The right pod comes out long after: the card comes back for it.
+        let t1 = ms(t0, 10_000);
+        state(&mut c, case(Lid::Open, Seated, Out), t1);
+        assert_eq!(c.target(t1), Some(Content::Expanded));
+        // ...and the left one a few seconds later keeps it up, 6 s from the last change.
+        let t2 = ms(t1, 4000);
+        state(&mut c, case(Lid::Open, Out, Out), t2);
+        assert_eq!(c.target(ms(t2, 5900)), Some(Content::Expanded));
+        assert_eq!(c.target(ms(t2, 6100)), None);
+
+        // Back in, then the lid shuts: the card stays just long enough to see it close.
+        let t3 = ms(t2, 20_000);
+        state(&mut c, case(Lid::Open, Seated, Seated), t3);
+        assert_eq!(c.target(t3), Some(Content::Expanded));
+        let t4 = ms(t3, 2000);
+        state(&mut c, case(Lid::Closed, Seated, Seated), t4);
+        assert_eq!(c.target(ms(t4, 1400)), Some(Content::Expanded));
+        assert_eq!(c.target(ms(t4, 1600)), None);
+    }
+
+    #[test]
+    fn a_pod_coming_out_does_not_cut_the_live_card_short() {
+        use Pod::{Out, Seated};
+        let t0 = Instant::now();
+        let mut c = live_controller(OverlayConfig::default());
+        state(&mut c, case(Lid::Open, Seated, Seated), t0);
+        let t1 = ms(t0, 1000);
+        state(&mut c, case(Lid::Open, Out, Seated), t1);
+        // Not the old 2 s cap: the pod's rise is the point of the card.
+        assert_eq!(c.target(ms(t1, 5000)), Some(Content::Expanded));
+    }
+
+    #[test]
+    fn nothing_when_switched_off_over_a_game_or_out_of_play() {
+        use Pod::{Out, Seated, Unknown};
+        let t0 = Instant::now();
+        let mut off = live_controller(OverlayConfig {
+            case_card: false,
+            ..Default::default()
+        });
+        state(&mut off, case(Lid::Open, Seated, Seated), t0);
+        state(&mut off, case(Lid::Open, Out, Seated), ms(t0, 7000));
+        assert_eq!(off.target(ms(t0, 7000)), None);
+
+        let mut game = live_controller(OverlayConfig::default());
+        game.apply(OverlayCommand::Fullscreen { active: true }, t0);
+        state(&mut game, case(Lid::Open, Seated, Seated), t0);
+        state(&mut game, case(Lid::Open, Out, Seated), ms(t0, 7000));
+        assert_eq!(game.target(ms(t0, 7000)), None);
+
+        // Both pods in ears with the lid shut: the case isn't in play, no card.
+        // (Connecting still shows its usual card, just without the case.)
+        assert!(!crate::island::has_art_with(
+            &case(Lid::Closed, Out, Out),
+            true
+        ));
+        let mut c = live_controller(OverlayConfig::default());
+        state(&mut c, case(Lid::Closed, Out, Out), t0);
+        let t1 = ms(t0, 7000);
+        assert_eq!(c.target(t1), None);
+        // Pods unknown (out of range): no card either.
+        state(&mut c, case(Lid::Closed, Unknown, Unknown), t1);
+        assert_eq!(c.target(t1), None);
+        assert!(!crate::island::has_art_with(
+            &case(Lid::Closed, Unknown, Unknown),
+            true
+        ));
+        // Disconnected: never the case.
+        let mut gone = case(Lid::Open, Seated, Seated);
+        gone.connected = false;
+        assert!(!crate::island::has_art_with(&gone, true));
+    }
+
+    #[test]
+    fn the_same_report_again_is_not_news() {
+        use Pod::Seated;
+        let t0 = Instant::now();
+        let mut c = live_controller(OverlayConfig::default());
+        state(&mut c, case(Lid::Open, Seated, Seated), t0);
+        let t1 = ms(t0, 7000);
+        let mut again = case(Lid::Open, Seated, Seated);
+        again.case_state.as_mut().unwrap().seq = 9;
+        again.case_state.as_mut().unwrap().source = CaseSource::Advert;
+        state(&mut c, again, t1);
+        assert_eq!(c.target(t1), None);
+    }
+
+    #[test]
+    fn the_first_open_of_the_day_spins_once() {
+        use Pod::Seated;
+        let t0 = Instant::now();
+        let mut c = live_controller(OverlayConfig::default());
+        let mut off = case(Lid::Closed, Seated, Seated);
+        off.connected = false;
+        state(&mut c, off.clone(), t0);
+        state(&mut c, case(Lid::Open, Seated, Seated), t0);
+        assert_eq!(c.last_spin(), Some(t0), "spins on the first connect");
+        let t1 = ms(t0, 60_000);
+        state(&mut c, off, t1);
+        state(&mut c, case(Lid::Open, Seated, Seated), t1);
+        assert_eq!(c.last_spin(), Some(t0), "not again the same day");
+    }
+
+    #[test]
+    fn without_live_the_old_card_is_untouched() {
+        use Pod::{Out, Seated};
+        let t0 = Instant::now();
+        let mut c = Controller {
+            live: false,
+            ..Default::default()
+        };
+        state(&mut c, case(Lid::Open, Seated, Seated), t0);
+        assert_eq!(c.target(t0), Some(Content::Expanded));
+        let t1 = ms(t0, 1000);
+        state(&mut c, case(Lid::Open, Seated, Out), t1);
+        // The old rule: a pod out caps the card at 2 s.
+        assert_eq!(c.target(ms(t1, 2100)), None);
+    }
+}

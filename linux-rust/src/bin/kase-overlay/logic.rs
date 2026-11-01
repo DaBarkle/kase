@@ -127,6 +127,8 @@ const CASE_CARD_AFTER_POD_OUT: Duration = Duration::from_secs(2);
 /// The case spins again on a connect this long after the last spin (once a day, in
 /// practice: the AirPods sit in the case overnight).
 const SPIN_AGAIN_AFTER: Duration = Duration::from_secs(6 * 3600);
+/// How long the live case card stays once the lid shuts (the lid closing plays first).
+const CASE_CARD_LID_SHUT: Duration = Duration::from_millis(1500);
 /// How long the case card stays after both pods are put away.
 const CASE_CARD_PUT_AWAY: Duration = Duration::from_secs(3);
 /// A presentation stays at least this long before a different one replaces it.
@@ -208,6 +210,16 @@ pub struct Controller {
     pub case_clip: Clip,
     /// When the case last played its first-connect spin.
     last_spin: Option<Instant>,
+    /// The case card follows the case live (setting on, clips installed).
+    live: bool,
+}
+
+impl Controller {
+    /// When the case card last chose the first-of-the-day spin (the live card spins its
+    /// next lid opening when this changes).
+    pub fn last_spin(&self) -> Option<Instant> {
+        self.last_spin
+    }
 }
 
 impl Default for Controller {
@@ -218,6 +230,9 @@ impl Default for Controller {
 
 impl Controller {
     pub fn new(config: OverlayConfig) -> Self {
+        let live = config.live_case && kase::ui::anim::live_ready();
+        // The drawing side reads the same switch.
+        crate::island::set_live(live);
         Self {
             config,
             state: None,
@@ -241,6 +256,7 @@ impl Controller {
             low_told: [None; 4],
             case_clip: Clip::Open,
             last_spin: None,
+            live,
         }
     }
 
@@ -369,6 +385,8 @@ impl Controller {
             OverlayCommand::Config(cfg) => {
                 let was = self.config.mode;
                 self.config = cfg;
+                self.live = self.config.live_case && kase::ui::anim::live_ready();
+                crate::island::set_live(self.live);
                 if was == OverlayMode::Always && self.config.mode != OverlayMode::Always {
                     // Leaving `always`: keep the card up for one more period, then go.
                     if self.mapped {
@@ -441,7 +459,21 @@ impl Controller {
         if (state.in_case && !case_charging) || (was_in_case && !state.connected) {
             ev = None;
         }
-        if was_in_case && state.connected && !state.in_case {
+        // Live case card: the 3D case follows the lid and each pod, so every change to the
+        // case while it is in play is worth the card, for a while after the last one.
+        let live = self.live && state.case_state.is_some();
+        let case_key = |s: &OverlayState| s.case_state.map(|c| (c.lid, c.left, c.right));
+        let case_moved = live
+            && !just_connected
+            && state.connected
+            && prev
+                .as_ref()
+                .is_some_and(|p| case_key(p) != case_key(&state));
+        let lid_shut = live
+            && state
+                .case_state
+                .is_some_and(|c| c.lid == kase::overlay_protocol::Lid::Closed);
+        if !live && was_in_case && state.connected && !state.in_case {
             // A pod came out: the case card has done its job.
             let cap = now + CASE_CARD_AFTER_POD_OUT;
             if let Some((Content::Expanded, until)) = &mut self.pop {
@@ -452,6 +484,10 @@ impl Controller {
         let card_ok = self.config.case_card && !self.fullscreen;
         let put_away = !just_connected && !was_in_case && state.in_case && state.connected;
         if card_ok && ((just_connected && state.in_case) || put_away) {
+            ev = Some(Content::Expanded);
+        }
+        let live_card = card_ok && crate::island::has_art_with(&state, self.live);
+        if live && live_card && (case_moved || just_connected) {
             ev = Some(Content::Expanded);
         }
         if !state.connected {
@@ -467,8 +503,21 @@ impl Controller {
             }
             Some(c) => {
                 self.farewell_until = None;
-                let case_card = state.in_case && c == Content::Expanded;
-                if case_card {
+                let case_card =
+                    c == Content::Expanded && if live { live_card } else { state.in_case };
+                if case_card && live {
+                    let both_in = state.case_state.is_some_and(|c| {
+                        use kase::overlay_protocol::Pod::Seated;
+                        c.left == Seated && c.right == Seated
+                    });
+                    if just_connected
+                        && both_in
+                        && self.last_spin.is_none_or(|t| now >= t + SPIN_AGAIN_AFTER)
+                    {
+                        // The first open of the day spins before the lid opens.
+                        self.last_spin = Some(now);
+                    }
+                } else if case_card {
                     self.case_clip = if put_away {
                         Clip::PutAway
                     } else if self.last_spin.is_none_or(|t| now >= t + SPIN_AGAIN_AFTER) {
@@ -484,7 +533,15 @@ impl Controller {
                 self.pop_up(c, now);
                 if case_card && let Some((_, until)) = &mut self.pop {
                     *until = now
-                        + if put_away {
+                        + if live {
+                            // Long enough to see the lid shut, else a while after the
+                            // last change.
+                            if lid_shut {
+                                CASE_CARD_LID_SHUT
+                            } else {
+                                CASE_CARD
+                            }
+                        } else if put_away {
                             CASE_CARD_PUT_AWAY
                         } else {
                             CASE_CARD

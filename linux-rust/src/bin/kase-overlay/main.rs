@@ -129,6 +129,8 @@ struct Overlay {
     quick_moving: bool,
     /// The case-open animation on the case card.
     art: kase::ui::anim::Art,
+    /// The live case card (the 3D case follows the lid and pods), when it is on.
+    live_art: kase::ui::anim::LiveArt,
     /// Recording a scripted journey on the test clock.
     rec: Option<record::Recorder>,
 }
@@ -195,6 +197,7 @@ impl Overlay {
             quick_tick: None,
             quick_moving: false,
             art: Default::default(),
+            live_art: Default::default(),
             rec: None,
         };
         if let Some(path) = &args.script {
@@ -380,8 +383,34 @@ impl Overlay {
                 .ctl
                 .display_state(now)
                 .is_some_and(|s| island::has_art(&s));
+        if island::live() {
+            // The newest state, not the settled one: the case moves as soon as it can.
+            let truth = self.ctl.display_state(now).and_then(|s| s.case_state);
+            self.live_art.sync(
+                truth,
+                want,
+                self.ctl.config.reduce_motion,
+                self.ctl.last_spin(),
+                now,
+            );
+            self.art.show(None, self.ctl.config.reduce_motion, now);
+            return;
+        }
         let clip = want.then_some(self.ctl.case_clip);
         self.art.show(clip, self.ctl.config.reduce_motion, now);
+    }
+
+    /// The art layers to draw, bottom first.
+    fn art_layers(&self) -> [Option<&iced::widget::image::Handle>; 3] {
+        if island::live() {
+            self.live_art.current()
+        } else {
+            [self.art.current(), None, None]
+        }
+    }
+
+    fn art_playing(&self) -> bool {
+        self.art.playing() || self.live_art.playing()
     }
 
     /// One timer for the next deadline (a pop-up ending), instead of polling.
@@ -390,11 +419,15 @@ impl Overlay {
             // The recorder steps the clock and syncs every frame.
             return Task::none();
         }
-        let next = [self.ctl.next_deadline(), self.art.drop_at()]
-            .into_iter()
-            .flatten()
-            .min()
-            .filter(|t| *t > now);
+        let next = [
+            self.ctl.next_deadline(),
+            self.art.drop_at(),
+            self.live_art.drop_at(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+        .filter(|t| *t > now);
         if next == self.wake_at {
             return Task::none();
         }
@@ -441,7 +474,7 @@ impl Overlay {
             tasks.push(self.update(Message::Cmd(OverlayCommand::State { state })));
         }
         tasks.push(self.sync(now));
-        let animating = self.ctl.is_animating(now) || self.art.playing();
+        let animating = self.ctl.is_animating(now) || self.art_playing();
         let deadline = self.ctl.next_deadline().filter(|t| *t > now);
         testclock::advance();
         if !animating && !first {
@@ -514,7 +547,7 @@ impl Overlay {
     /// Logs the frame, then moves the clock on: one step while anything moves, or
     /// straight to the next thing that will happen while the island is at rest.
     fn rec_finish(&mut self, generation: u64, now: Instant) -> Task<Message> {
-        let animating = self.ctl.is_animating(now) || self.art.playing() || self.quick_moving;
+        let animating = self.ctl.is_animating(now) || self.art_playing() || self.quick_moving;
         let headline = self.ctl.headline(now);
         let shown = self.ctl.motion.shown.as_ref().map(|c| format!("{c:?}"));
         let target = self.ctl.target(now).map(|c| format!("{c:?}"));
@@ -525,6 +558,7 @@ impl Overlay {
         });
         let deadline = self.ctl.next_deadline().filter(|t| *t > now);
         let quick_open = self.quick.is_some();
+        let art_n = self.art_layers().iter().flatten().count();
         let Some(rec) = &mut self.rec else {
             return Task::none();
         };
@@ -549,7 +583,7 @@ impl Overlay {
             "target": target,
             "headline": headline,
             "island": island,
-            "art": self.art.current().is_some(),
+            "art": art_n,
             "animating": animating,
             "files": files,
         }));
@@ -746,7 +780,7 @@ impl Overlay {
         let island = view::Island {
             ctl: &self.ctl,
             now,
-            art: self.art.current(),
+            art: self.art_layers(),
         };
         let surface = iced::Size::new(self.size.0 as f32, self.size.1 as f32);
         let body = island.purist_body(surface);
@@ -775,7 +809,7 @@ impl Overlay {
         if self.demo.is_none() && !self.story {
             subs.push(Subscription::run(stdin_stream));
         }
-        let art_playing = self.art.playing();
+        let art_playing = self.art_playing();
         if self.ctl.is_animating(now) || art_playing {
             // Paced by the compositor: one step per displayed frame, at the monitor's
             // refresh rate, and none while nothing moves. The slow timer only keeps a

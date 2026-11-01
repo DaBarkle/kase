@@ -17,6 +17,7 @@ fn every_setting_survives_a_save_and_load() {
         airpods_mic_switch: true,
         return_to_pc: false,
         case_card: false,
+        live_case: false,
         stay_alongside: false,
         reduce_motion: ReduceMotion::On,
         tray_quick_look: false,

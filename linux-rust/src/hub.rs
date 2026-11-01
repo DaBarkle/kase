@@ -68,6 +68,8 @@ pub struct DeviceSnapshot {
     /// Both pods were in the case when the AirPods last left this PC (or their adverts say
     /// so). The case then only reports again once its lid opens.
     pub in_case: bool,
+    /// Lid and per-pod (left/right) case state, for the live case animation.
+    pub case: crate::core::case_state::CaseState,
     /// Which mic the PC uses, while the AirPods mic switch is on (`None` when it is off).
     pub mic: Option<MicRoute>,
     /// Why the AirPods mic last failed or ended on its own, if it did.
@@ -96,6 +98,7 @@ impl DeviceSnapshot {
             elsewhere_name: None,
             controls: BTreeMap::new(),
             in_case: false,
+            case: Default::default(),
             mic: None,
             mic_problem: None,
             mic_failures: 0,

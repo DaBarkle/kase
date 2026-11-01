@@ -72,6 +72,15 @@ impl App {
                     overlay_on.then_some(Message::SetCaseCard as fn(bool) -> Message),
                 ),
             ),
+            setting_row(
+                "Follow the case live",
+                Some("The 3D case opens, and each AirPod lifts out or drops in, as you do it."),
+                switch(
+                    s.live_case,
+                    (overlay_on && s.case_card)
+                        .then_some(Message::SetLiveCase as fn(bool) -> Message),
+                ),
+            ),
         ]);
 
         let mut look = vec![
