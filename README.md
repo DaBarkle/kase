@@ -128,10 +128,11 @@ into its well when you return it, and the lid closes when you close it, even ove
 still in your ear. On the first open of the day the closed case first turns a full
 circle. The card comes back for every change while the case is in play and folds away
 6 seconds after the last one (1.5 seconds after the lid shuts). Turn this off with
-**Follow the case live** in the Island tab to get the earlier fixed clips instead. Everything plays at your monitor's refresh rate (just the last frame with
-**Reduce motion**), and the AirPods tab shows the case open or closed to match. Closing
-the lid with the pods inside doesn't pop a *Disconnected* alert. The case card is never shown over a
-fullscreen game or video; turn it off with **Show a card when I open the case** in the
+**Follow the case live** in the Island tab to get the earlier fixed clips instead.
+Everything plays at your monitor's refresh rate (just the last frame with **Reduce
+motion**), and the AirPods tab shows the case open or closed to match. Closing the lid
+with the pods inside doesn't pop a *Disconnected* alert. The case card is never shown
+over a fullscreen game or video; turn it off with **Show a card when I open the case** in the
 Island tab.
 
 <div align="center">
