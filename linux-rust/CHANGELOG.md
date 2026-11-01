@@ -6,6 +6,14 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-01
+
+### Fixed
+- **The 3D animations show again.** Kase found the case-open clip by its exact frame
+  count, and the 1.0.1 re-render is shorter, so it decided no 3D art was installed and
+  showed none, in the island or the AirPods tab. Clips are now found by their first frame
+  and counted from their files, and a test checks every clip is found. ([#60])
+
 ## [1.0.1] - 2026-11-01
 
 ### Fixed
@@ -620,7 +628,8 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 ### Fixed
 - Audio no longer stays silent after the AirPods reconnect ("walked away and came back").
 
-[Unreleased]: https://github.com/DaBarkle/kase/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/DaBarkle/kase/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/DaBarkle/kase/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/DaBarkle/kase/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/DaBarkle/kase/compare/v0.11.0...v1.0.0
 [0.11.0]: https://github.com/DaBarkle/kase/compare/v0.10.0...v0.11.0
@@ -687,3 +696,4 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#56]: https://github.com/DaBarkle/kase/pull/56
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
+[#60]: https://github.com/DaBarkle/kase/pull/60

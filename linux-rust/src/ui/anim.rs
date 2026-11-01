@@ -17,8 +17,6 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 pub const FPS: f32 = 144.0;
-/// Frames in the case-open clip (the one always installed).
-pub const COUNT: usize = 231;
 
 /// What the art shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -72,7 +70,11 @@ fn resolve(clip: Clip) -> (PathBuf, usize, Clip) {
     let base = dir().and_then(|d| d.parent()).map(PathBuf::from);
     match (base, clip_len(clip)) {
         (Some(b), n) if n > 0 => (b.join(clip.folder()), n, clip),
-        _ => (dir().cloned().unwrap_or_default(), COUNT, Clip::Open),
+        _ => (
+            dir().cloned().unwrap_or_default(),
+            clip_len(Clip::Open),
+            Clip::Open,
+        ),
     }
 }
 /// Frames decoded ahead of playback (each 440x440 RGBA is about 0.8 MB). A decode takes
@@ -86,11 +88,11 @@ pub fn fits(kind: &str) -> bool {
     kind.starts_with("airpods4")
 }
 
-/// The folder holding f000.webp.. when every frame is there.
+/// The case-open clip's folder (the one always installed), found by its first frame.
+/// Clips are counted from their files, so a re-render with a different length just works.
 pub fn dir() -> Option<&'static PathBuf> {
     static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
     DIR.get_or_init(|| {
-        let last = format!("f{:03}.webp", COUNT - 1);
         [
             std::env::var_os("KASE_ANIM_DIR").map(PathBuf::from),
             Some(PathBuf::from("/app/share/kase/anim/airpods4-open")),
@@ -101,7 +103,7 @@ pub fn dir() -> Option<&'static PathBuf> {
         ]
         .into_iter()
         .flatten()
-        .find(|d| d.join(&last).is_file())
+        .find(|d| d.join("f000.webp").is_file())
     })
     .as_ref()
 }
@@ -109,7 +111,7 @@ pub fn dir() -> Option<&'static PathBuf> {
 /// Which frame of a `count`-frame clip to show `elapsed` after the start: plays once,
 /// then holds the last. `still` (Reduce motion) shows the last frame at once.
 pub fn frame_at(elapsed: Duration, still: bool) -> usize {
-    clip_frame_at(elapsed, still, COUNT)
+    clip_frame_at(elapsed, still, clip_len(Clip::Open))
 }
 
 fn clip_frame_at(elapsed: Duration, still: bool, count: usize) -> usize {
@@ -324,10 +326,29 @@ mod tests {
 
     #[test]
     fn plays_once_then_holds() {
-        assert_eq!(frame_at(Duration::ZERO, false), 0);
-        assert_eq!(frame_at(Duration::from_millis(500), false), 72);
-        assert_eq!(frame_at(Duration::from_secs(60), false), COUNT - 1);
-        assert_eq!(frame_at(Duration::ZERO, true), COUNT - 1, "reduce motion");
+        assert_eq!(clip_frame_at(Duration::ZERO, false, 185), 0);
+        assert_eq!(clip_frame_at(Duration::from_millis(500), false, 185), 72);
+        assert_eq!(clip_frame_at(Duration::from_secs(60), false, 185), 184);
+        assert_eq!(
+            clip_frame_at(Duration::ZERO, true, 185),
+            184,
+            "reduce motion"
+        );
+    }
+
+    #[test]
+    fn every_clip_is_found_whatever_its_length() {
+        // The frames are in the repo, so this always runs. 1.0.1 shipped with no 3D art
+        // because the lookup expected the old clip's exact frame count.
+        assert!(dir().is_some(), "case-open clip not found");
+        for clip in [Clip::Open, Clip::SpinOpen, Clip::PutAway] {
+            assert!(
+                clip_len(clip) > 30,
+                "{clip:?} has {} frames",
+                clip_len(clip)
+            );
+            assert_eq!(resolve(clip).2, clip, "{clip:?} fell back");
+        }
     }
 
     #[test]
@@ -347,7 +368,10 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(!p.playing(), "never finished");
-        assert_eq!(p.shown.as_ref().map(|f| f.0), Some(COUNT - 1));
+        assert_eq!(
+            p.shown.as_ref().map(|f| f.0),
+            Some(clip_len(Clip::Open) - 1)
+        );
     }
 
     #[test]
@@ -360,19 +384,23 @@ mod tests {
             p.advance(Instant::now());
             std::thread::sleep(Duration::from_millis(7));
         }
-        assert_eq!(p.shown.as_ref().map(|f| f.0), Some(COUNT - 1));
+        assert_eq!(
+            p.shown.as_ref().map(|f| f.0),
+            Some(clip_len(Clip::Open) - 1)
+        );
     }
 
     #[test]
     fn frames_are_contiguous() {
-        // Skipped until the frames are in the repo.
-        let Some(d) = dir() else { return };
-        for i in 0..COUNT {
-            assert!(d.join(format!("f{i:03}.webp")).is_file(), "missing f{i:03}");
+        let base = dir().and_then(|d| d.parent()).expect("clips in the repo");
+        for clip in [Clip::Open, Clip::SpinOpen, Clip::PutAway] {
+            let d = base.join(clip.folder());
+            let files = std::fs::read_dir(&d).unwrap().count();
+            assert_eq!(
+                files,
+                clip_len(clip),
+                "{clip:?}: a gap in the frame numbers"
+            );
         }
-        assert!(
-            !d.join(format!("f{COUNT:03}.webp")).exists(),
-            "extra frames"
-        );
     }
 }

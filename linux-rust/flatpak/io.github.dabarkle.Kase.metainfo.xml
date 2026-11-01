@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.0.2" date="2026-11-01">
+      <description>
+        <p>The AirPods 4 3D animations are back: 1.0.1 shipped them but didn't show them.</p>
+      </description>
+    </release>
     <release version="1.0.1" date="2026-11-01">
       <description>
         <p>The AirPods 4 animations no longer pass through the case: the pods lift straight out of their wells before they spin, sit side by side in the case, and the lid opens and closes clear of them.</p>
