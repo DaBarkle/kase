@@ -1064,7 +1064,11 @@ fn the_case_card_plays_the_clip_for_its_moment() {
     let mut c = Controller::default();
     state(&mut c, off.clone(), t0);
     state(&mut c, inside.clone(), t0);
-    assert_eq!(c.case_clip, Clip::SpinOpen, "first connect of the day spins");
+    assert_eq!(
+        c.case_clip,
+        Clip::SpinOpen,
+        "first connect of the day spins"
+    );
     let (_, t) = run(&mut c, t0, 7000);
     state(&mut c, off.clone(), t);
     state(&mut c, inside.clone(), t);
