@@ -216,6 +216,7 @@ pub fn to_overlay_state(snap: &AppSnapshot) -> Option<OverlayState> {
         }),
         mic_failures: d.mic_failures,
         in_case: d.is_connected() && d.in_case,
+        case_state: d.is_connected().then_some(d.case),
         modes: crate::ui::format::listening_modes(d)
             .iter()
             .filter_map(|m| ListeningMode::from_byte(m.byte()))

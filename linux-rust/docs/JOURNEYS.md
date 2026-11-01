@@ -51,6 +51,34 @@ presentation logic is tested against these storyboards (`journeys_tests.rs`).
 | 9 | Switch the mic with a stem hold | "AirPods Mic" or "Desk Mic"; a shake if the AirPods mic isn't available | 2.2 s / 3 s | |
 | 10 | Change noise control quickly | One alert showing the final mode | 2.2 s from the last change | Three alerts in a row |
 
+## The live case card (Kase 1.1)
+
+With **Follow the case live** on (Island settings, on by default) and the AirPods 4 art
+installed, the case card shows the case as it really is, instead of one clip per moment:
+
+| You do | The card shows | Must never |
+| --- | --- | --- |
+| Open the lid (first time today) | The case turns once and the lid opens, both pods seated | Spin again later the same day |
+| Open the lid | The lid opens | |
+| Pull the right pod out | The right pod lifts straight out, turns once and hovers beside the case | Move the left pod |
+| Then the left | The left pod does the same | Start before the lid is open |
+| Put one back | It drops back into its well | Jump; a pod you change your mind about plays back from where it is |
+| Close the lid | The lid closes (over any pod still out, which keeps hovering); the card folds 1.5 s later | A "Disconnected" alert |
+
+- The card comes back for every change while the case is in play (lid open or a pod in
+  it) and stays 6 s after the last one.
+- **Where the truth comes from** (`src/core/case_state.rs`): AACP ear reports while the
+  control channel is up (left and right worked out from the battery report's order),
+  BLE adverts before that and for the lid. Replayed against every case event logged on
+  1 Nov 2026 (`tests/fixtures/case-events-2026-11-01.txt`): 2,779 pod readings, 0 wrong.
+- **How it moves** (`src/ui/case_pose.rs`): the lid moves first, pods only while it's
+  open, one at a time 80 ms apart; a change must hold 120 ms before it plays; anything
+  missed while the card was hidden for 2 s snaps. Unknown keeps the last pose.
+- **How it draws** (`src/ui/anim.rs`, `LiveArt`): three layers (case with seated pods,
+  left pod, right pod), each a pre-rendered clip in `assets/anim/airpods4-live/`, swapped
+  only once every layer's next frame is decoded so they never disagree on screen.
+- To test it by hand: `python3 tools/case-watch.py --check` shows what Kase saw, live.
+
 ## Today (Kase 0.11, recorded 2026-11-01)
 
 What the journey suite recorded before the calm island work, to compare against:

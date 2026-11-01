@@ -90,8 +90,9 @@ fn anchored_in(position: OverlayPosition, surface: Size, size: Size, pad: f32) -
 pub struct Island<'a> {
     pub ctl: &'a Controller,
     pub now: Instant,
-    /// The case-open animation's current frame, while it plays or holds.
-    pub art: Option<&'a iced::widget::image::Handle>,
+    /// The case art's current frames, bottom first (the live card stacks the case and
+    /// each pod; the classic clips use only the first).
+    pub art: [Option<&'a iced::widget::image::Handle>; 3],
 }
 
 impl<Message> canvas::Program<Message> for Island<'_> {
@@ -130,7 +131,7 @@ struct Ctx<'a> {
     /// Purist style: bundled Inter, and no halo under text (the body is solid black,
     /// so a halo would only soften the glyph edges).
     purist: bool,
-    art: Option<&'a iced::widget::image::Handle>,
+    art: [Option<&'a iced::widget::image::Handle>; 3],
 }
 
 impl Ctx<'_> {
@@ -744,11 +745,11 @@ fn paint_expanded(f: &mut Frame, w: f32, ctx: &Ctx) {
     }
     // The case-open animation above the usual card. The box keeps its size before the
     // first frame is decoded, so nothing moves when it appears.
-    if let Some(h) = ctx.art {
-        let at = Rectangle::new(Point::new((w - ART) / 2.0, ART_TOP), Size::new(ART, ART));
+    let at = Rectangle::new(Point::new((w - ART) / 2.0, ART_TOP), Size::new(ART, ART));
+    for h in ctx.art.iter().flatten() {
         f.draw_image(
             at,
-            iced::advanced::image::Image::new(h.clone()).opacity(ctx.ink),
+            iced::advanced::image::Image::new((*h).clone()).opacity(ctx.ink),
         );
     }
     f.with_save(|f| {
@@ -1313,7 +1314,7 @@ impl QuickView<'_> {
             sheen: None,
             island: (w, h),
             purist: true,
-            art: None,
+            art: [None; 3],
         };
         // Header: mark, name, and what the AirPods are doing.
         let glyph = white(0.92 * ink);

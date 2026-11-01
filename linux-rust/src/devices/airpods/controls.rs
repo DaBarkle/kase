@@ -257,6 +257,10 @@ pub(super) async fn handle_event(
         }
         AACPEvent::EarDetection(old, new) => {
             note_ear_status(&mac_s, new);
+            if let [primary, secondary] = new.as_slice() {
+                ctx.battery
+                    .send(BatteryInput::Ear(mac, *primary, *secondary));
+            }
             // A pod just went into the case. The first battery report then often says
             // "case unknown" (255) and the real level may never follow, so ask the AirPods
             // to resend their state a little later.

@@ -6,11 +6,29 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-02
+
+### Added
+- **The 3D case follows your AirPods live.** With AirPods 4 the case card's 3D case opens
+  when you open the lid, each pod lifts out and hovers when you take it, drops back in
+  when you return it, and the lid closes when you close it. The first open of the day
+  still spins. Changes of mind play back smoothly from where they are, and anything Kase
+  misses while the card is hidden is caught up without a jump. ([#64])
+- **Follow the case live** setting in the Island tab (on by default).
+- `tools/case-watch.py`, which shows what Kase sees of the case as it happens.
+
+### Changed
+- The case card comes back for each change while the case is in play and stays 6 s after
+  the last one (1.5 s after the lid shuts), instead of folding 2 s after a pod comes out.
+  ([#64])
+
 ### Fixed
+- A second pod coming out while the first was already out wasn't treated as news by the
+  island's settle window. ([#64])
 - **The status pill in the window no longer flickers.** While its width settled after a
   change, its text vanished on every frame the width dipped a fraction under the text's
   own width, so "Connected · Adaptive" blinked for about a second. The text now keeps its
-  full width and the pill only clips it.
+  full width and the pill only clips it. ([#65])
 
 ### Documentation
 - **The README opens with the real thing in motion.** New 60 fps demos with transparent
@@ -19,7 +37,7 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
   the 3D clips on their own. Outdated screenshots are gone.
 - `tools/visual-qa/showcase.py` records them from the real apps on the test clock, and
   `kase --ui-demo` can now record every frame of the window (`src/ui/window/record.rs`).
-  It checks every encoded frame against the recording and catches one-frame blinks.
+  It checks every encoded frame against the recording and catches one-frame blinks. ([#65])
 
 ## [1.0.4] - 2026-11-01
 
@@ -732,6 +750,8 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#56]: https://github.com/DaBarkle/kase/pull/56
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
+[#65]: https://github.com/DaBarkle/kase/pull/65
+[#64]: https://github.com/DaBarkle/kase/pull/64
 [#62]: https://github.com/DaBarkle/kase/pull/62
 [#61]: https://github.com/DaBarkle/kase/pull/61
 [#60]: https://github.com/DaBarkle/kase/pull/60

@@ -4,12 +4,13 @@
 //! channel is up) and BLE proximity adverts (le.rs, any time the AirPods are nearby, even when
 //! not connected to this PC). Keeping a single owner means the two sources can never race.
 
-use crate::bluetooth::aacp::BatteryInfo;
+use crate::bluetooth::aacp::{BatteryInfo, EarDetectionStatus};
 use crate::core::battery::{BatteryTracker, BleBatteryReading};
+use crate::core::case_state::CaseTracker;
 use crate::core::models::{ModelInfo, ModelKind};
 use crate::hub::{Hub, LinkState};
 use bluer::Address;
-use log::debug;
+use log::{debug, info};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, UNIX_EPOCH};
@@ -22,6 +23,8 @@ pub enum BatteryInput {
     /// The Bluetooth link to this PC is gone (the device task ended).
     LinkLost(Address),
     Ble(Address, BleBatteryReading),
+    /// An AACP ear report (primary, secondary), for the case state.
+    Ear(Address, EarDetectionStatus, EarDetectionStatus),
 }
 
 #[derive(Clone)]
@@ -77,6 +80,7 @@ fn tracker_for<'a>(
 
 async fn run(hub: Hub, mut rx: mpsc::UnboundedReceiver<BatteryInput>, cache_path: PathBuf) {
     let mut trackers: HashMap<Address, BatteryTracker> = HashMap::new();
+    let mut cases: HashMap<Address, CaseTracker> = HashMap::new();
     let mut case_cache = load_case_cache(&cache_path);
     // Periodic tick so staleness (e.g. AACP silent for 60 s) is re-evaluated without new input.
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(15));
@@ -87,14 +91,29 @@ async fn run(hub: Hub, mut rx: mpsc::UnboundedReceiver<BatteryInput>, cache_path
                 let now = Instant::now();
                 match input {
                     BatteryInput::Aacp(mac, info) => {
+                        let case = cases.entry(mac).or_default();
+                        if case.on_battery(&info, now) {
+                            publish_case(&hub, mac, case);
+                        }
                         tracker_for(&mut trackers, &case_cache, mac).apply_aacp(&info, now);
                         vec![mac]
+                    }
+                    BatteryInput::Ear(mac, primary, secondary) => {
+                        let case = cases.entry(mac).or_default();
+                        if case.on_ear(primary, secondary, now) {
+                            publish_case(&hub, mac, case);
+                        }
+                        vec![]
                     }
                     BatteryInput::AacpLink(mac, up) => {
                         tracker_for(&mut trackers, &case_cache, mac).set_aacp_connected(up);
                         vec![mac]
                     }
                     BatteryInput::LinkLost(mac) => {
+                        let case = cases.entry(mac).or_default();
+                        if case.on_link_lost() {
+                            publish_case(&hub, mac, case);
+                        }
                         tracker_for(&mut trackers, &case_cache, mac).link_lost();
                         vec![mac]
                     }
@@ -115,6 +134,10 @@ async fn run(hub: Hub, mut rx: mpsc::UnboundedReceiver<BatteryInput>, cache_path
                                 d.in_case = in_case;
                             }
                         });
+                        let case = cases.entry(mac).or_default();
+                        if case.on_advert(&reading, now) {
+                            publish_case(&hub, mac, case);
+                        }
                         tracker_for(&mut trackers, &case_cache, mac).apply_ble(&reading, now);
                         if let Some(kind) = product
                             .map(|id| ModelInfo::from_ble_product_id(id).kind)
@@ -176,6 +199,22 @@ async fn run(hub: Hub, mut rx: mpsc::UnboundedReceiver<BatteryInput>, cache_path
             });
         }
     }
+}
+
+/// Puts a changed case state in the hub, and logs it with millisecond time so a test run
+/// can be read back from the log (tools/case-watch.py).
+fn publish_case(hub: &Hub, mac: Address, case: &CaseTracker) {
+    let state = case.state();
+    let ms = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() % 100_000);
+    info!(
+        "case {mac} #{} at {ms:05} ms: {}",
+        state.seq,
+        state.describe()
+    );
+    let mac_s = mac.to_string();
+    hub.update_device(&mac_s, &known_name(hub, &mac_s), |d| d.case = state);
 }
 
 fn set_model_if_unknown(hub: &Hub, mac: Address, kind: ModelKind) {

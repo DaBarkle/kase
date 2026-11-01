@@ -325,10 +325,37 @@ impl Content {
     }
 }
 
-/// The case card shows the case-open animation: AirPods 4 with the lid open, when the
-/// frames are installed.
+static LIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Live case card on: the clips are installed and the setting is on.
+pub fn set_live(on: bool) {
+    LIVE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn live() -> bool {
+    LIVE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The case card shows the 3D case: AirPods 4, when the frames are installed. Live, while
+/// the case is in play (lid open, or a pod in it); otherwise with both pods put away.
 pub fn has_art(state: &OverlayState) -> bool {
-    state.in_case && kase::ui::anim::fits(&state.kind) && kase::ui::anim::dir().is_some()
+    has_art_with(state, live())
+}
+
+/// `has_art` with the live mode given (the controller keeps its own copy, so tests don't
+/// share the global).
+pub fn has_art_with(state: &OverlayState, live: bool) -> bool {
+    use kase::overlay_protocol::{Lid, Pod};
+    if !kase::ui::anim::fits(&state.kind) || kase::ui::anim::dir().is_none() {
+        return false;
+    }
+    match state.case_state {
+        Some(c) if live => {
+            state.connected
+                && (c.lid == Lid::Open || c.left == Pod::Seated || c.right == Pod::Seated)
+        }
+        _ => state.in_case,
+    }
 }
 
 fn is_headphone(state: &OverlayState) -> bool {

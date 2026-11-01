@@ -125,6 +125,28 @@ class Rig:
         pivot.location = (STEM[side] + SEAT_SHIFT * s
                           + Vector((-sign * (out_mm + SEAT_OUT_MM * s), 0.0, lift_mm)) * MM)
 
+    def set_layer(self, layer: str, buds_out=()):
+        """Render one layer of the live case card. "case": the case and lid, with the pods in
+        `buds_out` hidden. "L"/"R": that pod alone; the case and lid stay as a holdout, so
+        the pod is cut away wherever they are in front of it, and the other pod is hidden."""
+        def meshes(name):
+            o = bpy.data.objects[name]
+            return [x for x in [o, *o.children_recursive] if x.type == "MESH"]
+
+        pods = {s: meshes(n) for s, n in BUDS.items()}
+        if layer == "case":
+            for s in buds_out:
+                for m in pods[s]:
+                    m.hide_render = True
+            return
+        other = "R" if layer == "L" else "L"
+        for m in pods[other]:
+            m.hide_render = True
+        mine = set(pods["L"]) | set(pods["R"])
+        for m in bpy.data.objects:
+            if m.type == "MESH" and m not in mine and not m.hide_render:
+                m.is_holdout = True
+
     def key(self, frame: int):
         for o in [self.spin, self.lid, *[x for pair in self.buds.values() for x in pair]]:
             o.keyframe_insert("rotation_euler", frame=frame)

@@ -125,6 +125,7 @@ fn clip_frame_at(elapsed: Duration, still: bool, count: usize) -> usize {
 pub struct Player {
     start: Instant,
     still: bool,
+    /// Positions in the playback (frames from `from`, in `reverse` or forwards).
     count: usize,
     /// Only this frame is shown (the closed still).
     hold: Option<usize>,
@@ -150,8 +151,34 @@ impl Player {
         dir()?;
         let (dir, count, clip) = resolve(clip);
         let hold = (clip == Clip::Closed).then_some(0);
+        Self::spawn(dir, count, 0, false, hold, still)
+    }
+
+    /// Plays the frames of `dir` from frame `from`, forwards to the last of `len` or
+    /// backwards to the first, as `advance_to` asks. The live case card drives one per layer.
+    pub fn segment(dir: PathBuf, len: usize, from: usize, reverse: bool) -> Option<Self> {
+        let from = from.min(len.checked_sub(1)?);
+        let count = if reverse { from + 1 } else { len - from };
+        Self::spawn(dir, count, from, reverse, None, false)
+    }
+
+    fn spawn(
+        dir: PathBuf,
+        count: usize,
+        from: usize,
+        reverse: bool,
+        hold: Option<usize>,
+        still: bool,
+    ) -> Option<Self> {
         let still = still || hold.is_some();
         let first = hold.unwrap_or(if still { count - 1 } else { 0 });
+        let frame_of = move |pos: usize| {
+            if reverse {
+                from.saturating_sub(pos)
+            } else {
+                from + pos
+            }
+        };
         let (tx, rx) = sync_channel(AHEAD);
         let want = Arc::new(AtomicUsize::new(first));
         let stop = Arc::new(AtomicBool::new(false));
@@ -164,8 +191,12 @@ impl Player {
                 while i < end && !s.load(Ordering::Relaxed) {
                     // Behind playback: skip to what is due instead of decoding stale frames.
                     i = i.max(w.load(Ordering::Relaxed));
-                    let Some(h) = decode(&dir.join(format!("f{i:03}.webp"))) else {
-                        log::warn!("animation frame {i} failed to decode; stopping");
+                    let file = dir.join(format!("f{:03}.webp", frame_of(i)));
+                    let Some(h) = decode(&file) else {
+                        log::warn!(
+                            "animation frame {} failed to decode; stopping",
+                            file.display()
+                        );
                         return;
                     };
                     // Blocks while AHEAD frames wait; errors once the player is dropped.
@@ -201,6 +232,13 @@ impl Player {
                 self.count,
             ),
         };
+        self.advance_to(due);
+    }
+
+    /// Moves to the newest decoded position up to `due` (positions count from the
+    /// segment's first frame).
+    pub fn advance_to(&mut self, due: usize) {
+        let due = due.min(self.count.saturating_sub(1));
         self.want.store(due, Ordering::Relaxed);
         loop {
             let f = match self.next.take() {
@@ -305,6 +343,188 @@ impl Art {
     }
 }
 
+// --- The live case card ---------------------------------------------------------
+
+use crate::core::case_state::CaseState;
+use crate::ui::case_pose::{CasePose, LiveClip, Shot};
+
+/// Where the live card's clips are: `airpods4-live/<clip>/f000.webp`, next to the others.
+fn live_base() -> Option<PathBuf> {
+    let base = dir()?.parent()?.join("airpods4-live");
+    base.is_dir().then_some(base)
+}
+
+/// Frames in a live clip (0 when not installed), counted once.
+pub fn live_len(clip: LiveClip) -> usize {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    static LENS: OnceLock<Mutex<HashMap<LiveClip, usize>>> = OnceLock::new();
+    let lens = LENS.get_or_init(Default::default);
+    if let Some(n) = lens.lock().ok().and_then(|m| m.get(&clip).copied()) {
+        return n;
+    }
+    let n = live_base()
+        .map(|b| {
+            let folder = b.join(clip.name());
+            (0..2000)
+                .take_while(|i| folder.join(format!("f{i:03}.webp")).is_file())
+                .count()
+        })
+        .unwrap_or(0);
+    if let Ok(mut m) = lens.lock() {
+        m.insert(clip, n);
+    }
+    n
+}
+
+/// Every live clip is installed, so the card can follow the case live.
+pub fn live_ready() -> bool {
+    static READY: OnceLock<bool> = OnceLock::new();
+    *READY.get_or_init(|| LiveClip::all().into_iter().all(|c| live_len(c) > 0))
+}
+
+struct LayerPlay {
+    key: (LiveClip, usize, bool),
+    player: Player,
+}
+
+impl LayerPlay {
+    fn new(shot: &Shot) -> Option<Self> {
+        let dir = live_base()?.join(shot.clip.name());
+        let player = Player::segment(dir, live_len(shot.clip), shot.from, shot.reverse)?;
+        Some(Self {
+            key: (shot.clip, shot.from, shot.reverse),
+            player,
+        })
+    }
+}
+
+/// The pose machine, with clip lengths read from the installed art.
+type LivePose = CasePose<fn(LiveClip) -> usize>;
+
+/// The live case card's three layers (case, left pod, right pod), played from the
+/// pose in `case_pose`. A change of clip on any layer is swapped in only once every
+/// layer's new frame is decoded, so the layers never disagree on screen (a pod leaving
+/// the case layer and appearing on its own layer happen in the same frame).
+#[derive(Default)]
+pub struct LiveArt {
+    pose: Option<LivePose>,
+    shown: [Option<LayerPlay>; 3],
+    /// New segments waiting for their first frame: Some(None) means "remove this layer".
+    next: [Option<Option<LayerPlay>>; 3],
+    last: Option<Instant>,
+    hidden: Option<Instant>,
+    spin_seen: Option<Instant>,
+}
+
+impl LiveArt {
+    /// Call on every tick. `truth` is the AirPods' latest case state; `visible` whether
+    /// the art is on screen; `spin_at` when the overlay last chose the first-of-the-day
+    /// spin (a new value makes the next lid opening spin).
+    pub fn sync(
+        &mut self,
+        truth: Option<CaseState>,
+        visible: bool,
+        reduce_motion: bool,
+        spin_at: Option<Instant>,
+        now: Instant,
+    ) {
+        // Hidden, the whole gap counts (the overlay may not tick for an hour); on screen,
+        // a long gap (a stall) is not played as a jump.
+        let gap = self
+            .last
+            .map_or(0.0, |t| now.saturating_duration_since(t).as_secs_f32());
+        let dt = if visible { gap.min(0.1) } else { gap };
+        self.last = Some(now);
+        if let Some(pose) = &mut self.pose {
+            // Time passes on what was known before this news, so old news is skipped
+            // while hidden but this news still animates when the card opens for it.
+            pose.set_reduce_motion(reduce_motion);
+            pose.tick(dt, visible);
+        }
+        if let Some(truth) = truth {
+            let pose = self.pose.get_or_insert_with(|| {
+                // Start from the case shut, so the first card shows it opening.
+                let start = CaseState {
+                    lid: crate::core::case_state::Lid::Closed,
+                    ..truth
+                };
+                CasePose::new(live_len as fn(LiveClip) -> usize, start)
+            });
+            pose.set_target(truth);
+        }
+        let Some(pose) = &mut self.pose else { return };
+        if spin_at.is_some() && spin_at != self.spin_seen {
+            self.spin_seen = spin_at;
+            pose.spin_next = true;
+        }
+        if !visible {
+            let since = *self.hidden.get_or_insert(now);
+            if now.saturating_duration_since(since) >= LINGER {
+                self.shown = Default::default();
+                self.next = Default::default();
+            }
+            return;
+        }
+        self.hidden = None;
+        let want = pose.layers();
+        for (i, w) in want.iter().enumerate() {
+            let key = w.map(|s| (s.clip, s.from, s.reverse));
+            let shown_key = self.shown[i].as_ref().map(|l| l.key);
+            let next_key = self.next[i].as_ref().map(|n| n.as_ref().map(|l| l.key));
+            if key == shown_key {
+                self.next[i] = None;
+            } else if next_key != Some(key) {
+                self.next[i] = Some(w.as_ref().and_then(LayerPlay::new));
+            }
+        }
+        for (i, w) in want.iter().enumerate() {
+            let Some(w) = w else { continue };
+            let pos = w.pos();
+            if let Some(Some(n)) = &mut self.next[i] {
+                n.player.advance_to(pos);
+            } else if let Some(l) = &mut self.shown[i] {
+                l.player.advance_to(pos);
+            }
+        }
+        let ready = self
+            .next
+            .iter()
+            .all(|n| !matches!(n, Some(Some(l)) if l.player.current().is_none()));
+        if ready || self.shown.iter().all(Option::is_none) {
+            for i in 0..3 {
+                if let Some(n) = self.next[i].take() {
+                    self.shown[i] = n;
+                }
+            }
+        }
+    }
+
+    /// The layers to draw, bottom first.
+    pub fn current(&self) -> [Option<&Handle>; 3] {
+        let f = |i: usize| self.shown[i].as_ref().and_then(|l| l.player.current());
+        [f(0), f(1), f(2)]
+    }
+
+    /// Frames are needed at the display's rate.
+    pub fn playing(&self) -> bool {
+        self.pose.as_ref().is_some_and(|p| p.moving())
+            || self.next.iter().any(Option::is_some)
+            || self
+                .shown
+                .iter()
+                .flatten()
+                .any(|l| l.player.current().is_none())
+    }
+
+    /// When the frames will be freed, if the art is hidden and still holds them.
+    pub fn drop_at(&self) -> Option<Instant> {
+        self.hidden
+            .filter(|_| self.shown.iter().any(Option::is_some))
+            .map(|t| t + LINGER)
+    }
+}
+
 impl Drop for Player {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
@@ -402,5 +622,39 @@ mod tests {
                 "{clip:?}: a gap in the frame numbers"
             );
         }
+    }
+
+    /// Every live clip is installed, without gaps, and as long as the pose machine's
+    /// tests assume (the lid clips line up with each other, and sink starts where rise
+    /// ends).
+    #[test]
+    fn live_clips_are_complete() {
+        let base = live_base().expect("live clips in the repo");
+        for clip in LiveClip::all() {
+            let files = std::fs::read_dir(base.join(clip.name())).unwrap().count();
+            assert!(files > 0, "{} missing", clip.name());
+            assert_eq!(files, live_len(clip), "{}: a gap", clip.name());
+        }
+        assert!(live_ready());
+        use crate::ui::case_pose::{Seated, Side};
+        for s in [Seated::Both, Seated::L, Seated::R] {
+            assert_eq!(
+                live_len(LiveClip::LidOpen(s)),
+                live_len(LiveClip::LidOpen(Seated::Both))
+            );
+            assert_eq!(
+                live_len(LiveClip::LidClose(s)),
+                live_len(LiveClip::LidClose(Seated::Both))
+            );
+            assert_eq!(live_len(LiveClip::Case(s)), 1);
+        }
+        assert_eq!(
+            live_len(LiveClip::Rise(Side::L)),
+            live_len(LiveClip::Rise(Side::R))
+        );
+        assert_eq!(
+            live_len(LiveClip::Sink(Side::L)),
+            live_len(LiveClip::Sink(Side::R))
+        );
     }
 }

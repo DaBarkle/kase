@@ -10,7 +10,7 @@
 
 use std::time::{Duration, Instant};
 
-use kase::overlay_protocol::{ComponentState, OverlayState};
+use kase::overlay_protocol::{ComponentState, Lid, OverlayState, Pod};
 
 /// Quiet time after the last meaningful change.
 pub const QUIET: Duration = Duration::from_millis(300);
@@ -44,6 +44,12 @@ pub fn meaningful(a: Option<&OverlayState>, b: &OverlayState) -> bool {
         || part_key(&a.right) != part_key(&b.right)
         || part_key(&a.case) != part_key(&b.case)
         || part_key(&a.headphone) != part_key(&b.headphone)
+        || case_key(a) != case_key(b)
+}
+
+/// Where the lid and each pod are (the live case card), without the bookkeeping.
+fn case_key(s: &OverlayState) -> Option<(Lid, Pod, Pod)> {
+    s.case_state.map(|c| (c.lid, c.left, c.right))
 }
 
 #[derive(Debug, Default)]

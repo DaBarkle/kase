@@ -121,15 +121,18 @@ one alert, not a flurry. Alerts of the same kind join up ("AirPods charging"), a
 updates in place, a message is never swapped out before you've had time to read it, and a
 low battery warns once rather than every time the level wobbles.
 
-When the AirPods connect from the open case, the card shows both pods and the case for
-about 6 seconds and folds away 2 seconds after you take a pod out. With AirPods 4 the card
-plays a 3D animation once it has finished opening: the lid swings open and the pods rise
-out. On the first connect of the day the closed case first turns a full circle and the
-pods spiral up out of it. Putting both pods back plays them dropping in and the lid
-closing. Everything plays at your monitor's refresh rate (just the last frame with
-**Reduce motion**), and the AirPods tab shows the case open or closed to match. Closing
-the lid with the pods inside doesn't pop a *Disconnected* alert. The case card is never shown over a
-fullscreen game or video; turn it off with **Show a card when I open the case** in the
+When the AirPods connect from the open case, the card shows both pods and the case. With
+AirPods 4 the card follows the case live in 3D: the lid opens when you open it, each pod
+lifts out (turning once and hovering beside the case) the moment you take it, drops back
+into its well when you return it, and the lid closes when you close it, even over a pod
+still in your ear. On the first open of the day the closed case first turns a full
+circle. The card comes back for every change while the case is in play and folds away
+6 seconds after the last one (1.5 seconds after the lid shuts). Turn this off with
+**Follow the case live** in the Island tab to get the earlier fixed clips instead.
+Everything plays at your monitor's refresh rate (just the last frame with **Reduce
+motion**), and the AirPods tab shows the case open or closed to match. Closing the lid
+with the pods inside doesn't pop a *Disconnected* alert. The case card is never shown
+over a fullscreen game or video; turn it off with **Show a card when I open the case** in the
 Island tab.
 
 <div align="center">
@@ -359,8 +362,8 @@ become short fades and nothing loops, in the window and on the island alike.
 
 **The island**
 - Card, slim island and alerts, on springs
-- A case card with both pods and the case when you open the lid, with a 3D lid-open
-  animation for AirPods 4
+- A case card with both pods and the case when you open the lid; with AirPods 4 the 3D
+  case follows the lid and each pod live
 - Purist and Classic styles, four sizes, six places
 - Translucent over fullscreen games, solid on the desktop
 - Redraws only while it moves; at rest it uses no CPU
