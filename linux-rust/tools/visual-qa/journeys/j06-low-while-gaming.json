@@ -1,0 +1,86 @@
+{
+  "title": "Battery gets low while you're gaming",
+  "note": "A fullscreen game is in front. Levels wobble around 20%: the low alert should come once, not again on each wobble.",
+  "config": {
+    "mode": "auto"
+  },
+  "state": {
+    "name": "AirPods 4",
+    "kind": "airpods4",
+    "connected": true,
+    "left": {
+      "level": 22,
+      "present": true
+    },
+    "right": {
+      "level": 23,
+      "present": true
+    },
+    "case": {
+      "level": 41,
+      "present": false,
+      "stale": true,
+      "last_seen_secs": 1800
+    },
+    "listening_mode": "noise_cancellation",
+    "modes": [
+      "off",
+      "transparency",
+      "adaptive",
+      "noise_cancellation"
+    ]
+  },
+  "events": [
+    {
+      "t_ms": 0,
+      "cmd": {
+        "type": "fullscreen",
+        "active": true
+      }
+    },
+    {
+      "t_ms": 1000,
+      "state": {
+        "left": {
+          "level": 20
+        }
+      }
+    },
+    {
+      "t_ms": 6000,
+      "state": {
+        "right": {
+          "level": 20
+        }
+      }
+    },
+    {
+      "t_ms": 11000,
+      "state": {
+        "left": {
+          "level": 21
+        }
+      }
+    },
+    {
+      "t_ms": 16000,
+      "state": {
+        "left": {
+          "level": 20
+        }
+      }
+    },
+    {
+      "t_ms": 21000,
+      "state": {
+        "left": {
+          "level": 19
+        },
+        "right": {
+          "level": 19
+        }
+      }
+    }
+  ],
+  "end_ms": 27000
+}

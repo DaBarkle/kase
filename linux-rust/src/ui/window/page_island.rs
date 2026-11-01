@@ -203,7 +203,7 @@ impl App {
             .primary()
             .map(|d| format::gauges(d, self.now))
             .unwrap_or_default();
-        let mut line = row![widgets::icon(Glyph::Earbuds, 11.0, Ink::Text)]
+        let mut line = row![widgets::icon(Glyph::Earbuds, 11.0, Ink::OnDark)]
             .spacing(5)
             .align_y(Center);
         let small = |t: String, dim: bool| {

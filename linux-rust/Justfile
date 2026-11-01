@@ -46,5 +46,10 @@ visual-qa name="latest":
     cargo build --release
     tools/visual-qa/kase_qa.py capture --out target/visual-qa/{{name}}
 
+# Record every scripted island journey frame by frame (filmstrips, videos, checks).
+visual-journeys *names:
+    cargo build --release --bin kase-overlay
+    tools/visual-qa/kase_qa.py journey {{names}}
+
 visual-diff before="before" after="after":
     tools/visual-qa/kase_qa.py compare target/visual-qa/{{before}} target/visual-qa/{{after}}

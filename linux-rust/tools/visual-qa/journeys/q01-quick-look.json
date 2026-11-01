@@ -1,0 +1,42 @@
+{
+  "title": "Open the tray quick look",
+  "config": {
+    "mode": "compact"
+  },
+  "state": {
+    "name": "AirPods 4",
+    "kind": "airpods4",
+    "connected": true,
+    "left": {
+      "level": 82,
+      "present": true
+    },
+    "right": {
+      "level": 77,
+      "present": true
+    },
+    "case": {
+      "level": 41,
+      "present": false,
+      "stale": true,
+      "last_seen_secs": 1800
+    },
+    "listening_mode": "noise_cancellation",
+    "modes": [
+      "off",
+      "transparency",
+      "adaptive",
+      "noise_cancellation"
+    ]
+  },
+  "events": [
+    {
+      "t_ms": 0,
+      "cmd": {
+        "type": "quick_look",
+        "corner": "bottom-right"
+      }
+    }
+  ],
+  "end_ms": 2500
+}

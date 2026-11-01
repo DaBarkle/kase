@@ -1,0 +1,82 @@
+{
+  "title": "Take both pods out and put them in your ears",
+  "note": "From an open case. Battery goes to discharging about 0.1 s after each pod leaves; ear detection follows 1-2 s later.",
+  "config": {
+    "mode": "auto"
+  },
+  "state": {
+    "name": "AirPods 4",
+    "kind": "airpods4",
+    "connected": true,
+    "left": {
+      "level": 82,
+      "present": true,
+      "charging": true,
+      "out_of_ear": true
+    },
+    "right": {
+      "level": 77,
+      "present": true,
+      "charging": true,
+      "out_of_ear": true
+    },
+    "case": {
+      "level": 41,
+      "present": true
+    },
+    "listening_mode": "noise_cancellation",
+    "modes": [
+      "off",
+      "transparency",
+      "adaptive",
+      "noise_cancellation"
+    ],
+    "in_case": true
+  },
+  "events": [
+    {
+      "t_ms": 0,
+      "state": {
+        "in_case": false,
+        "right": {
+          "charging": false
+        }
+      }
+    },
+    {
+      "t_ms": 1300,
+      "state": {
+        "left": {
+          "charging": false
+        }
+      }
+    },
+    {
+      "t_ms": 3000,
+      "state": {
+        "right": {
+          "out_of_ear": false
+        }
+      }
+    },
+    {
+      "t_ms": 3800,
+      "state": {
+        "left": {
+          "out_of_ear": false
+        }
+      }
+    },
+    {
+      "t_ms": 4600,
+      "state": {
+        "case": {
+          "present": false,
+          "stale": true,
+          "last_seen_secs": 0
+        }
+      }
+    }
+  ],
+  "end_ms": 11000
+}

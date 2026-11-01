@@ -1,0 +1,22 @@
+{
+  "title": "Put the pods back one at a time and close the lid",
+  "note": "Timings from the 2026-11-01 packet capture on David's PC (AirPods 4 ANC). Left goes in first, then right, then the lid closes; the link drops about 12 s later.",
+  "config": { "mode": "auto" },
+  "state": {
+    "name": "AirPods 4", "kind": "airpods4", "connected": true,
+    "left":  { "level": 82, "present": true },
+    "right": { "level": 77, "present": true },
+    "case":  { "level": 41, "present": false, "stale": true, "last_seen_secs": 1800 },
+    "listening_mode": "noise_cancellation",
+    "modes": ["off", "transparency", "adaptive", "noise_cancellation"]
+  },
+  "events": [
+    { "t_ms": 0,     "state": { "left": { "out_of_ear": true } } },
+    { "t_ms": 950,   "state": { "left": { "charging": true } } },
+    { "t_ms": 2950,  "state": { "case": { "present": true, "stale": false, "last_seen_secs": null } } },
+    { "t_ms": 4200,  "state": { "right": { "out_of_ear": true } } },
+    { "t_ms": 5150,  "state": { "right": { "charging": true }, "in_case": true } },
+    { "t_ms": 19500, "state": { "connected": false, "in_case": false } }
+  ],
+  "end_ms": 26000
+}

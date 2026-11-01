@@ -1,0 +1,48 @@
+{
+  "title": "Mic switch with a stem hold",
+  "config": {
+    "mode": "auto"
+  },
+  "state": {
+    "name": "AirPods 4",
+    "kind": "airpods4",
+    "connected": true,
+    "left": {
+      "level": 82,
+      "present": true
+    },
+    "right": {
+      "level": 77,
+      "present": true
+    },
+    "case": {
+      "level": 41,
+      "present": false,
+      "stale": true,
+      "last_seen_secs": 1800
+    },
+    "listening_mode": "noise_cancellation",
+    "modes": [
+      "off",
+      "transparency",
+      "adaptive",
+      "noise_cancellation"
+    ],
+    "mic": "desk"
+  },
+  "events": [
+    {
+      "t_ms": 0,
+      "state": {
+        "mic": "airpods"
+      }
+    },
+    {
+      "t_ms": 6000,
+      "state": {
+        "mic": "desk"
+      }
+    }
+  ],
+  "end_ms": 12000
+}

@@ -1,0 +1,47 @@
+{
+  "title": "Walk away out of range, then come back",
+  "config": {
+    "mode": "auto"
+  },
+  "state": {
+    "name": "AirPods 4",
+    "kind": "airpods4",
+    "connected": true,
+    "left": {
+      "level": 82,
+      "present": true
+    },
+    "right": {
+      "level": 77,
+      "present": true
+    },
+    "case": {
+      "level": 41,
+      "present": false,
+      "stale": true,
+      "last_seen_secs": 1800
+    },
+    "listening_mode": "noise_cancellation",
+    "modes": [
+      "off",
+      "transparency",
+      "adaptive",
+      "noise_cancellation"
+    ]
+  },
+  "events": [
+    {
+      "t_ms": 0,
+      "state": {
+        "connected": false
+      }
+    },
+    {
+      "t_ms": 10000,
+      "state": {
+        "connected": true
+      }
+    }
+  ],
+  "end_ms": 17000
+}
