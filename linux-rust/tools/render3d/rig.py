@@ -6,8 +6,7 @@ parts as rigid bodies, by node name (Sketchfab names never change; indices can):
   spin   whole case and pods, yaw about the case centre
   lid    opens/closes about the hinge (y 9.5, z 11.0 mm), +115.5 deg about X = closed
   bud.L / bud.R   from "out" (the model's pose, hovering above the case) to "seated"
-                  (tilt 20 deg about X, yaw +/-55 deg about the stem bottom, then
-                  +9 mm y and -30 mm z), plus an extra orbit about the case axis
+                  (SEAT_* below), plus orbit about the case axis, twirl, lift, out
 
 The "Designed by Apple" text on the back is hidden: no Apple wording in the app.
 Coordinates in mm in comments; Blender works in metres.
@@ -26,9 +25,17 @@ DECAL = "LnYYAmqquNQJFje"
 LID_PIVOT = Vector((0.0, 9.5, 11.0)) * MM
 LID_CLOSED_DEG = 115.5
 STEM = {"L": Vector((-12.64, -4.60, 20.54)) * MM, "R": Vector((12.64, -4.60, 20.54)) * MM}
-SEAT_TILT_DEG = 20.0
-SEAT_YAW_DEG = {"L": 55.0, "R": -55.0}
-SEAT_SHIFT = Vector((0.0, 9.0, -30.0)) * MM
+# Seated pose, solved with collide.py: the lid opens and closes over the pods without
+# touching them, the pods never touch each other, and a straight lift clears the rim and
+# the well walls. The wells in the model
+# are shallower than the pods, so the stems pass through the well floor, out of sight.
+SEAT_TILT_DEG = -5.75
+SEAT_YAW_DEG = {"L": 46.25, "R": -46.25}
+SEAT_SHIFT = Vector((0.0, 3.875, -30.75)) * MM
+SEAT_OUT_MM = -2.0
+# Lifting a seated pod this far straight up brings it to the height of the "out" pose,
+# clear of the case (it is clear of the rim from about 6 mm).
+SEAT_DEPTH_MM = 30.75
 CASE_CENTRE = Vector((0.0, 0.0, 2.0)) * MM
 
 
@@ -103,14 +110,20 @@ class Rig:
         """0 = open (model pose), 1 = closed."""
         self.lid.rotation_euler = Euler((math.radians(LID_CLOSED_DEG * closed), 0.0, 0.0))
 
-    def set_bud(self, side: str, seated: float, orbit_deg: float = 0.0, lift_mm: float = 0.0):
-        """seated 0 = out (model pose), 1 = in its well. orbit spins it about the case."""
+    def set_bud(self, side: str, seated: float, orbit_deg: float = 0.0, lift_mm: float = 0.0,
+                twirl_deg: float = 0.0, out_mm: float = 0.0):
+        """seated 0 = out (model pose), 1 = in its well. orbit spins it about the case;
+        twirl spins it about its own vertical axis (mirrored for the right pod, so the
+        pair stays symmetric); lift raises it and out moves it away from the middle."""
         orbit, pivot = self.buds[side]
         orbit.rotation_euler = Euler((0.0, 0.0, math.radians(orbit_deg)))
         s = seated
+        sign = 1.0 if side == "L" else -1.0
         pivot.rotation_euler = Euler(
-            (math.radians(SEAT_TILT_DEG * s), 0.0, math.radians(SEAT_YAW_DEG[side] * s)))
-        pivot.location = STEM[side] + SEAT_SHIFT * s + Vector((0.0, 0.0, lift_mm * MM))
+            (math.radians(SEAT_TILT_DEG * s), 0.0,
+             math.radians(SEAT_YAW_DEG[side] * s + sign * twirl_deg)))
+        pivot.location = (STEM[side] + SEAT_SHIFT * s
+                          + Vector((-sign * (out_mm + SEAT_OUT_MM * s), 0.0, lift_mm)) * MM)
 
     def key(self, frame: int):
         for o in [self.spin, self.lid, *[x for pair in self.buds.values() for x in pair]]:
