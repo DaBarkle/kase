@@ -6,6 +6,19 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-02
+
+### Fixed
+- **The lid closing plays to the end when your AirPods are in your ears.** Shutting the
+  lid with both pods out used to make the 3D case vanish from the card as the lid started
+  to close. The card now keeps it until the lid is shut, then folds. ([#67])
+
+### Documentation
+- The README's demos show the live case: the island opening as the case turns and opens,
+  each pod lifting out as it's taken, and the lid closing; and the 3D case on its own
+  going through a whole open, out, back in and close. "How it works" explains how Kase
+  tells the left pod from the right. ([#67])
+
 ## [1.1.1] - 2026-11-02
 
 ### Fixed
@@ -759,6 +772,7 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#56]: https://github.com/DaBarkle/kase/pull/56
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
+[#67]: https://github.com/DaBarkle/kase/pull/67
 [#66]: https://github.com/DaBarkle/kase/pull/66
 [#65]: https://github.com/DaBarkle/kase/pull/65
 [#64]: https://github.com/DaBarkle/kase/pull/64

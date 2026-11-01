@@ -1,6 +1,6 @@
 {
-  "title": "README hero: open the case, take the pods out, change noise control",
-  "note": "Showcase clip for the README (showcase.py). First connect of the day, so the card plays the spin-open clip.",
+  "title": "README hero: open the case, take each pod out, close the lid, change noise control",
+  "note": "Showcase clip for the README (showcase.py). First connect of the day: the live 3D case turns and opens, then each pod comes out as it is taken, and the lid shuts.",
   "config": {
     "mode": "compact"
   },
@@ -33,7 +33,14 @@
       "adaptive",
       "noise_cancellation"
     ],
-    "in_case": false
+    "in_case": false,
+    "case_state": {
+      "lid": "Closed",
+      "left": "Seated",
+      "right": "Seated",
+      "source": "Aacp",
+      "seq": 0
+    }
   },
   "events": [
     {
@@ -51,6 +58,13 @@
         },
         "right": {
           "present": false
+        },
+        "case_state": {
+          "lid": "Open",
+          "left": "Seated",
+          "right": "Seated",
+          "source": "Aacp",
+          "seq": 0
         }
       }
     },
@@ -63,30 +77,65 @@
       }
     },
     {
-      "t_ms": 5200,
+      "t_ms": 3300,
       "state": {
-        "in_case": false
+        "case_state": {
+          "lid": "Open",
+          "left": "Seated",
+          "right": "Out",
+          "source": "Aacp",
+          "seq": 0
+        },
+        "right": {
+          "charging": false
+        }
+      }
+    },
+    {
+      "t_ms": 4600,
+      "state": {
+        "in_case": false,
+        "case_state": {
+          "lid": "Open",
+          "left": "Out",
+          "right": "Out",
+          "source": "Aacp",
+          "seq": 0
+        },
+        "left": {
+          "charging": false
+        }
       }
     },
     {
       "t_ms": 6400,
       "state": {
         "left": {
-          "out_of_ear": false,
-          "charging": false
+          "out_of_ear": false
         },
         "right": {
-          "out_of_ear": false,
-          "charging": false
+          "out_of_ear": false
         }
       }
     },
     {
-      "t_ms": 10000,
+      "t_ms": 7000,
+      "state": {
+        "case_state": {
+          "lid": "Closed",
+          "left": "Out",
+          "right": "Out",
+          "source": "Aacp",
+          "seq": 0
+        }
+      }
+    },
+    {
+      "t_ms": 11000,
       "state": {
         "listening_mode": "transparency"
       }
     }
   ],
-  "end_ms": 14500
+  "end_ms": 15500
 }
