@@ -95,7 +95,7 @@ impl Player {
             })
             .ok()?;
         Some(Self {
-            start: Instant::now(),
+            start: crate::testclock::now(),
             still,
             rx,
             next: None,
@@ -114,6 +114,19 @@ impl Player {
         loop {
             let f = match self.next.take() {
                 Some(f) => f,
+                // On the test clock, wait for the due frame so every run shows the same one.
+                None if crate::testclock::stepping()
+                    && self.shown.as_ref().is_none_or(|(i, _)| *i < due) =>
+                {
+                    match self.rx.recv_timeout(Duration::from_secs(2)) {
+                        Ok(f) => f,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            self.done = true;
+                            break;
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                    }
+                }
                 None => match self.rx.try_recv() {
                     Ok(f) => f,
                     // After the last frame, or a frame that failed to decode.

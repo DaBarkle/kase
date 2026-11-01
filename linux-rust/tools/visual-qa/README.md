@@ -51,6 +51,51 @@ in pink) and `report.txt`, sorted by how much changed. Only a few shots: `--only
 tools/visual-qa/kase_qa.py inspect target/visual-qa/after/window-airpods-dark.png --grid 8 --zoom 2
 ```
 
+## Journeys: frame-exact animation capture
+
+`journey` plays scripted user journeys (putting the pods away, a low battery mid-game, the
+iPhone taking the audio...) on the island and records **every frame**. It uses a test
+clock inside the app: time only moves forward after each frame has been saved, so a slow
+software renderer still captures all 120 frames of every second, and two runs give the
+same frames. While nothing moves the clock jumps straight to the next event, so a 25 s
+journey takes about 40 s to record.
+
+```bash
+tools/visual-qa/kase_qa.py journey                # all of them
+tools/visual-qa/kase_qa.py journey j03 j06        # by name prefix
+tools/visual-qa/kase_qa.py journey --list
+tools/visual-qa/kase_qa.py compare target/visual-qa/journeys-before/j03/samples \
+    target/visual-qa/journeys/j03/samples         # what changed, frame by frame
+```
+
+Per journey, under `target/visual-qa/journeys/<name>/`:
+
+| Output | What it is |
+| --- | --- |
+| `index.html` | Video, timeline, checks, moments and filmstrip on one page |
+| `journey.mp4` | Real-speed video (each frame held exactly as long as it was shown) |
+| `filmstrip.png` | One still every 100 ms (`--sample-ms`) with timestamps |
+| `moments.png` | The first and the settled frame of every presentation |
+| `samples/` | The filmstrip stills, named by time, for `compare` |
+| `frames/` | Every frame as drawn, plus `frames.jsonl` (time, what was shown, island size) |
+| `timeline.json` | What the island showed, from when to when |
+| `checks.json` | Broken rules (below) |
+
+Rules checked on every frame: a presentation replaced by another in under 1.2 s
+(`min-display`), the island drawn into the surface edge (`edge-clip`), and the island
+moving for more than 2 s at a stretch, case art excluded (`long-motion`). `--strict` exits
+1 when one is broken.
+
+A journey is a JSON script in `journeys/`: a starting `state`, then `events` at test times,
+each a patch over the state so far or a protocol `cmd`. The format is documented at the top
+of `src/bin/kase-overlay/record.rs`. Timings in the scripts come from a real capture of
+AirPods 4 packets (2026-11-01). The island first settles on the starting state, unseen, so
+each journey starts from a calm island (`"start": "cold"` skips that).
+
+The app side: `KASE_TEST_STEP_MS` turns the test clock on (`src/testclock.rs`) and
+`KASE_SHOT_DIR` says where frames go; `kase-overlay --script FILE` plays a journey. Normal
+runs never set them.
+
 ## Notes
 
 - Rendering is Mesa's software Vulkan (lavapipe), so colours and anti-aliasing match a real

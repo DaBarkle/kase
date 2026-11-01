@@ -1,0 +1,61 @@
+{
+  "title": "One pod in the case, one in your ear",
+  "config": {
+    "mode": "auto"
+  },
+  "state": {
+    "name": "AirPods 4",
+    "kind": "airpods4",
+    "connected": true,
+    "left": {
+      "level": 82,
+      "present": true
+    },
+    "right": {
+      "level": 77,
+      "present": true
+    },
+    "case": {
+      "level": 41,
+      "present": false,
+      "stale": true,
+      "last_seen_secs": 1800
+    },
+    "listening_mode": "noise_cancellation",
+    "modes": [
+      "off",
+      "transparency",
+      "adaptive",
+      "noise_cancellation"
+    ]
+  },
+  "events": [
+    {
+      "t_ms": 0,
+      "state": {
+        "right": {
+          "out_of_ear": true
+        }
+      }
+    },
+    {
+      "t_ms": 950,
+      "state": {
+        "right": {
+          "charging": true
+        }
+      }
+    },
+    {
+      "t_ms": 2950,
+      "state": {
+        "case": {
+          "present": true,
+          "stale": false,
+          "last_seen_secs": null
+        }
+      }
+    }
+  ],
+  "end_ms": 10000
+}

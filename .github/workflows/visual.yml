@@ -1,0 +1,94 @@
+# Records every scripted island journey frame by frame (tools/visual-qa, `journey`) and
+# uploads the filmstrips, videos and checks as an artifact to look through.
+#
+# It never blocks anything: it runs by hand and nightly, not on pull requests, and broken
+# rules are listed in the run summary rather than failing the run. Rendering is software
+# Vulkan (lavapipe) in a headless Sway, the same as the cloud QA sessions.
+name: Visual journeys
+
+on:
+  workflow_dispatch:
+    inputs:
+      journeys:
+        description: 'Journey name prefixes, space separated (empty = all)'
+        required: false
+        default: ''
+  schedule:
+    # 17:20 UTC = early morning in Melbourne.
+    - cron: '20 17 * * *'
+
+concurrency:
+  group: visual-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  journeys:
+    name: Record journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: linux-rust
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install system libraries and tools
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
+        with:
+          packages: pkg-config libdbus-1-dev libpulse-dev libxkbcommon-dev libwayland-dev libavcodec-dev sway grim swaybg mesa-vulkan-drivers ffmpeg python3-pil fonts-dejavu-core
+          version: 1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: linux-rust
+          shared-key: visual
+
+      - name: Build the overlay
+        run: cargo build --release --locked --bin kase-overlay
+
+      - name: Record journeys
+        env:
+          NAMES: ${{ github.event.inputs.journeys }}
+        # NAMES is split into prefixes on purpose.
+        run: |
+          # shellcheck disable=SC2086
+          python3 tools/visual-qa/kase_qa.py journey $NAMES --out target/visual-qa/journeys
+
+      - name: Summary
+        if: always()
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          p = pathlib.Path("target/visual-qa/journeys/summary.json")
+          if not p.exists():
+              print("No summary (the recording failed; see the log).")
+              raise SystemExit
+          print("### Island journeys\n\n| Journey | Frames | Broken rules |\n| --- | --- | --- |")
+          for r in json.loads(p.read_text()):
+              probs = "; ".join(f"{x['rule']} at {x['t_ms'] / 1000:.2f} s" for x in r["problems"])
+              print(f"| {r['journey']} | {r['frames']} | {probs or 'none'} |")
+          EOF
+
+      - name: Upload filmstrips and videos
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-journeys
+          path: |
+            linux-rust/target/visual-qa/journeys/**/index.html
+            linux-rust/target/visual-qa/journeys/**/*.png
+            linux-rust/target/visual-qa/journeys/**/*.mp4
+            linux-rust/target/visual-qa/journeys/**/*.json
+            linux-rust/target/visual-qa/journeys/**/*.jsonl
+            linux-rust/target/visual-qa/journeys/**/overlay.log
+          retention-days: 14

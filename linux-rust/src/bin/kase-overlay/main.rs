@@ -21,6 +21,7 @@ mod logic;
 mod probe;
 mod purist;
 mod quick;
+mod record;
 mod spring;
 mod view;
 
@@ -45,6 +46,7 @@ use kase::overlay_protocol::{
     EXIT_UNSUPPORTED, OverlayCommand, OverlayConfig, OverlayEvent, OverlayMode, OverlayPosition,
     OverlaySize, OverlayState, OverlayStyle,
 };
+use kase::testclock;
 use logic::{Controller, SurfaceAction};
 
 const NAMESPACE: &str = "kase-overlay";
@@ -62,6 +64,8 @@ struct Args {
     size: Option<OverlaySize>,
     /// With a demo: open the tray quick look too.
     quick_look: bool,
+    /// Play this journey on the test clock and record it (`KASE_TEST_STEP_MS`).
+    script: Option<String>,
 }
 
 fn usage() -> &'static str {
@@ -77,6 +81,7 @@ fn usage() -> &'static str {
        --style S           with a demo: classic|purist\n  \
        --size S            with a demo: small|medium|large|extra_large\n  \
        --quick-look        with --demo: also open the tray quick look\n  \
+       --script FILE       play a scripted journey on the test clock and record each frame\n  \
        --probe             check for layer-shell support and exit (0 or 3)\n"
 }
 
@@ -94,6 +99,13 @@ enum Message {
     QuickPointer(Option<quick::Hit>, bool),
     QuickTap(quick::Hit),
     Key(iced::keyboard::Key),
+    /// Test clock: play due script events and draw this frame (generation).
+    Frame(u64),
+    /// Test clock: screenshot the next surface of this frame.
+    Capture(u64),
+    Saved(u64, iced::window::Screenshot),
+    /// Test clock: re-try a capture that never came back.
+    Watchdog,
 }
 
 struct Overlay {
@@ -114,6 +126,8 @@ struct Overlay {
     quick_moving: bool,
     /// The case-open animation on the case card.
     art: kase::ui::anim::Art,
+    /// Recording a scripted journey on the test clock.
+    rec: Option<record::Recorder>,
 }
 
 struct DemoState {
@@ -178,7 +192,21 @@ impl Overlay {
             quick_tick: None,
             quick_moving: false,
             art: Default::default(),
+            rec: None,
         };
+        if let Some(path) = &args.script {
+            match record::Recorder::load(path) {
+                Ok(r) => {
+                    me.ctl = Controller::new(r.config.clone());
+                    me.rec = Some(r);
+                    return (me, Task::done(Message::Frame(0)));
+                }
+                Err(e) => {
+                    log::error!("cannot load script: {e}");
+                    return (me, iced::exit());
+                }
+            }
+        }
         let task = if me.demo.is_some() {
             let demo = me.demo_apply();
             if args.quick_look {
@@ -209,7 +237,7 @@ impl Overlay {
             return Task::none();
         };
         info!("demo: {label}");
-        let now = Instant::now();
+        let now = testclock::now();
         self.ctl.apply(OverlayCommand::State { state }, now);
         self.ctl.apply(
             OverlayCommand::Show {
@@ -249,7 +277,7 @@ impl Overlay {
             self.quick_moving = true;
             return Task::none();
         }
-        let Some(state) = self.ctl.display_state(Instant::now()) else {
+        let Some(state) = self.ctl.display_state(testclock::now()) else {
             // Nothing to show yet: the window says more than an empty card.
             emit(&OverlayEvent::OpenWindow);
             return Task::none();
@@ -351,6 +379,10 @@ impl Overlay {
 
     /// One timer for the next deadline (a pop-up ending), instead of polling.
     fn schedule_wake(&mut self, now: Instant) -> Task<Message> {
+        if self.rec.is_some() {
+            // The recorder steps the clock and syncs every frame.
+            return Task::none();
+        }
         let next = [self.ctl.next_deadline(), self.art.drop_at()]
             .into_iter()
             .flatten()
@@ -369,12 +401,200 @@ impl Overlay {
         }
     }
 
+    /// Test clock: plays the script events due now, steps everything to this frame's
+    /// time, then captures it (once the surfaces it asked for exist).
+    fn rec_frame(&mut self, generation: u64, now: Instant) -> Task<Message> {
+        let Some(rec) = &mut self.rec else {
+            return Task::none();
+        };
+        if generation != rec.generation {
+            return Task::none();
+        }
+        rec.progress = Instant::now();
+        if rec.warmup.is_some() {
+            return self.rec_warm(generation, now);
+        }
+        let due = rec.due(testclock::elapsed_ms());
+        let mut tasks: Vec<Task<Message>> = due
+            .into_iter()
+            .map(|cmd| self.update(Message::Cmd(cmd)))
+            .collect();
+        tasks.push(self.sync(now));
+        tasks.push(self.sync_quick(now));
+        Task::batch(tasks).chain(Task::done(Message::Capture(generation)))
+    }
+
+    /// Before time zero: plays the starting state without recording until the island
+    /// is at rest with nothing scheduled, then starts the clock at zero.
+    fn rec_warm(&mut self, generation: u64, now: Instant) -> Task<Message> {
+        let first = testclock::frame() == 0;
+        let base = self.rec.as_ref().and_then(|r| r.warmup.clone());
+        let mut tasks = vec![];
+        if first && let Some(state) = base {
+            tasks.push(self.update(Message::Cmd(OverlayCommand::State { state })));
+        }
+        tasks.push(self.sync(now));
+        let animating = self.ctl.is_animating(now) || self.art.playing();
+        let deadline = self.ctl.next_deadline().filter(|t| *t > now);
+        testclock::advance();
+        if !animating && !first {
+            match deadline {
+                Some(at) => testclock::skip_to(at),
+                None => {
+                    if let Some(rec) = &mut self.rec {
+                        rec.warmup = None;
+                    }
+                    testclock::set_zero();
+                    info!("warm-up done; recording");
+                }
+            }
+        }
+        Task::batch(tasks).chain(Task::done(Message::Frame(generation)))
+    }
+
+    fn rec_capture(&mut self, generation: u64) -> Task<Message> {
+        let (window, quick) = (self.window, self.quick.as_ref().map(|(id, _)| *id));
+        let Some(rec) = &mut self.rec else {
+            return Task::none();
+        };
+        if generation != rec.generation {
+            return Task::none();
+        }
+        rec.pending.clear();
+        rec.saved.clear();
+        if let Some(id) = window {
+            rec.pending.push((record::Surface::Island, id));
+        }
+        if let Some(id) = quick {
+            rec.pending.push((record::Surface::Quick, id));
+        }
+        self.rec_next(generation, testclock::now())
+    }
+
+    /// Screenshots the next surface, or ends the frame when all are saved.
+    fn rec_next(&mut self, generation: u64, now: Instant) -> Task<Message> {
+        let Some(rec) = &self.rec else {
+            return Task::none();
+        };
+        match rec.pending.first() {
+            Some((_, id)) => {
+                iced::window::screenshot(*id).map(move |s| Message::Saved(generation, s))
+            }
+            None => self.rec_finish(generation, now),
+        }
+    }
+
+    fn rec_saved(
+        &mut self,
+        generation: u64,
+        shot: iced::window::Screenshot,
+        now: Instant,
+    ) -> Task<Message> {
+        let Some(rec) = &mut self.rec else {
+            return Task::none();
+        };
+        if generation != rec.generation || rec.pending.is_empty() {
+            return Task::none();
+        }
+        rec.progress = Instant::now();
+        let (surface, _) = rec.pending.remove(0);
+        if let Some(name) = testclock::save(&shot, surface.tag()) {
+            rec.saved.push((surface, name));
+        }
+        self.rec_next(generation, now)
+    }
+
+    /// Logs the frame, then moves the clock on: one step while anything moves, or
+    /// straight to the next thing that will happen while the island is at rest.
+    fn rec_finish(&mut self, generation: u64, now: Instant) -> Task<Message> {
+        let animating = self.ctl.is_animating(now) || self.art.playing() || self.quick_moving;
+        let headline = self.ctl.headline(now);
+        let shown = self.ctl.motion.shown.as_ref().map(|c| format!("{c:?}"));
+        let target = self.ctl.target(now).map(|c| format!("{c:?}"));
+        let m = &self.ctl.motion;
+        let island = serde_json::json!({
+            "w": m.w.value, "h": m.h.value, "r": m.r.value,
+            "alpha": m.alpha.value, "pulse": m.pulse.value,
+        });
+        let deadline = self.ctl.next_deadline().filter(|t| *t > now);
+        let quick_open = self.quick.is_some();
+        let Some(rec) = &mut self.rec else {
+            return Task::none();
+        };
+        let files: serde_json::Map<String, serde_json::Value> = rec
+            .saved
+            .iter()
+            .map(|(s, n)| {
+                let key = if s.tag().is_empty() {
+                    "island"
+                } else {
+                    s.tag()
+                };
+                (key.to_string(), n.clone().into())
+            })
+            .collect();
+        let t_ms = testclock::elapsed_ms();
+        testclock::log_frame(&serde_json::json!({
+            "frame": testclock::frame(),
+            "t_ms": (t_ms * 1000.0).round() / 1000.0,
+            "mapped": self.window.is_some(),
+            "shown": shown,
+            "target": target,
+            "headline": headline,
+            "island": island,
+            "art": self.art.current().is_some(),
+            "animating": animating,
+            "files": files,
+        }));
+        let done = rec.past_end(t_ms)
+            || (!rec.has_end() && rec.played() && !animating && deadline.is_none() && !quick_open)
+            || testclock::frame() >= testclock::max_frames();
+        if done {
+            info!(
+                "recording done: {} frames, {t_ms:.0} ms",
+                testclock::frame() + 1
+            );
+            return iced::exit();
+        }
+        if animating {
+            testclock::advance();
+        } else {
+            // Nothing moves until the next event, deadline or the end; the quick look
+            // still checks its close-by-itself rules every 250 ms.
+            let quick_cap = quick_open.then(|| now + Duration::from_millis(250));
+            let next = [rec.next_event(now), deadline, rec.end_at(now), quick_cap]
+                .into_iter()
+                .flatten()
+                .min();
+            testclock::advance();
+            if let Some(at) = next {
+                testclock::skip_to(at);
+            }
+        }
+        Task::done(Message::Frame(generation))
+    }
+
+    /// A screenshot that never comes back (a surface still being set up) is asked for
+    /// again after two seconds.
+    fn rec_watchdog(&mut self) -> Task<Message> {
+        let Some(rec) = &mut self.rec else {
+            return Task::none();
+        };
+        if rec.progress.elapsed() < Duration::from_secs(2) {
+            return Task::none();
+        }
+        rec.generation += 1;
+        rec.progress = Instant::now();
+        debug!("capture stalled; asking again");
+        Task::done(Message::Capture(rec.generation))
+    }
+
     fn update(&mut self, message: Message) -> Task<Message> {
-        let now = Instant::now();
+        let now = testclock::now();
         match message {
             Message::Cmd(OverlayCommand::Quit) => iced::exit(),
             Message::StdinClosed => {
-                if self.demo.is_some() || self.story {
+                if self.demo.is_some() || self.story || self.rec.is_some() {
                     Task::none()
                 } else {
                     info!("stdin closed, exiting");
@@ -450,7 +670,12 @@ impl Overlay {
                 Task::batch(tasks)
             }
             Message::Tick(at) => {
-                let at = at.max(now);
+                // The test clock ignores the compositor's wall-clock timestamps.
+                let at = if testclock::stepping() {
+                    now
+                } else {
+                    at.max(now)
+                };
                 Task::batch([self.sync(at), self.sync_quick(at)])
             }
             Message::Wake(at) => {
@@ -459,6 +684,10 @@ impl Overlay {
                 }
                 self.sync(now)
             }
+            Message::Frame(generation) => self.rec_frame(generation, now),
+            Message::Capture(generation) => self.rec_capture(generation),
+            Message::Saved(generation, shot) => self.rec_saved(generation, shot, now),
+            Message::Watchdog => self.rec_watchdog(),
             Message::DemoStep => {
                 if let Some(d) = &mut self.demo {
                     d.step = d.step.wrapping_add(1);
@@ -491,7 +720,7 @@ impl Overlay {
     }
 
     fn view(&self, id: Id) -> Element<'_, Message> {
-        let now = Instant::now();
+        let now = testclock::now();
         if let Some((qid, q)) = &self.quick
             && *qid == id
         {
@@ -529,8 +758,13 @@ impl Overlay {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let now = Instant::now();
+        let now = testclock::now();
         let mut subs = vec![iced::window::close_events().map(Message::WindowClosed)];
+        if self.rec.is_some() {
+            // The recorder drives every frame; only a watchdog runs on the wall clock.
+            subs.push(iced::time::every(Duration::from_millis(500)).map(|_| Message::Watchdog));
+            return Subscription::batch(subs);
+        }
         if self.demo.is_none() && !self.story {
             subs.push(Subscription::run(stdin_stream));
         }
@@ -670,6 +904,7 @@ fn parse_args() -> Result<(Args, bool), String> {
                 );
             }
             "--quick-look" => args.quick_look = true,
+            "--script" => args.script = Some(it.next().ok_or("--script needs a file")?),
             "--probe" => probe_only = true,
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown argument: {other}")),

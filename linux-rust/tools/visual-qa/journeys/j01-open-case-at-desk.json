@@ -1,0 +1,67 @@
+{
+  "title": "Open the case at the desk (first connect of the day)",
+  "note": "Kase saw the AirPods yesterday; the lid opens and they connect. The second pod joins about 1 s later (C1 in the timing capture).",
+  "config": {
+    "mode": "auto"
+  },
+  "state": {
+    "name": "AirPods 4",
+    "kind": "airpods4",
+    "connected": false,
+    "left": {
+      "level": 82,
+      "present": true,
+      "charging": true,
+      "out_of_ear": true
+    },
+    "right": {
+      "level": 77,
+      "present": true,
+      "charging": true,
+      "out_of_ear": true
+    },
+    "case": {
+      "level": 41,
+      "present": false,
+      "stale": true,
+      "last_seen_secs": 50000
+    },
+    "listening_mode": "noise_cancellation",
+    "modes": [
+      "off",
+      "transparency",
+      "adaptive",
+      "noise_cancellation"
+    ],
+    "in_case": false
+  },
+  "events": [
+    {
+      "t_ms": 0,
+      "state": {
+        "connected": true,
+        "in_case": true,
+        "case": {
+          "present": true,
+          "stale": false,
+          "last_seen_secs": null
+        },
+        "left": {
+          "present": true
+        },
+        "right": {
+          "present": false
+        }
+      }
+    },
+    {
+      "t_ms": 1070,
+      "state": {
+        "right": {
+          "present": true
+        }
+      }
+    }
+  ],
+  "end_ms": 9000
+}

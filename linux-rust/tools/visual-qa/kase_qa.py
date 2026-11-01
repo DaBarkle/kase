@@ -515,6 +515,27 @@ def cmd_inspect(a):
     print(out)
 
 
+# --------------------------------------------------------------------------- journeys
+
+
+def cmd_journey(a):
+    import journeys
+
+    if not (BIN / "kase-overlay").exists():
+        raise SystemExit(f"missing {BIN / 'kase-overlay'}: run `cargo build --release` first")
+    if a.list:
+        for s in sorted(journeys.JOURNEYS.glob("*.json")):
+            print(s.stem, "-", json.loads(s.read_text()).get("title", ""))
+        return
+    out = Path(a.out).resolve()
+    res = journeys.run(a.names, out, Sway, BIN, a.scale, 1000.0 / a.fps, a.sample_ms,
+                       BG_DARK, int(min(a.fps, 60)), a.timeout, contact_sheet, font)
+    total = sum(len(r["problems"]) for r in res)
+    print(f"done: {len(res)} journeys, {total} problems, in {out}")
+    if a.strict and total:
+        raise SystemExit(1)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -530,6 +551,15 @@ def main():
     m.add_argument("before")
     m.add_argument("after")
     m.add_argument("--out")
+    j = sub.add_parser("journey", help="record scripted journeys frame by frame")
+    j.add_argument("names", nargs="*", help="journey name prefixes (default: all)")
+    j.add_argument("--out", default=str(ROOT / "target" / "visual-qa" / "journeys"))
+    j.add_argument("--fps", type=float, default=120.0, help="test clock frames per second")
+    j.add_argument("--sample-ms", type=int, default=100, help="filmstrip spacing")
+    j.add_argument("--scale", type=float, default=2.0)
+    j.add_argument("--timeout", type=float, default=1800.0, help="max seconds per journey")
+    j.add_argument("--strict", action="store_true", help="exit 1 when a rule is broken")
+    j.add_argument("--list", action="store_true", help="list journeys and exit")
     i = sub.add_parser("inspect", help="zoom a region and draw a spacing grid")
     i.add_argument("image")
     i.add_argument("--grid", type=int, default=8, help="grid step in logical px (0 = off)")
@@ -542,7 +572,8 @@ def main():
         for s in scenarios():
             print(s.name)
         return
-    {"capture": cmd_capture, "compare": cmd_compare, "inspect": cmd_inspect}[a.cmd](a)
+    {"capture": cmd_capture, "compare": cmd_compare, "inspect": cmd_inspect,
+     "journey": cmd_journey}[a.cmd](a)
 
 
 if __name__ == "__main__":

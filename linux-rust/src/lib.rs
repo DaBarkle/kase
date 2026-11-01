@@ -23,6 +23,7 @@ pub mod single_instance;
 mod sleep_monitor;
 mod store;
 pub mod supervisor;
+pub mod testclock;
 mod toplevel_watch;
 pub mod ui;
 pub mod utils;

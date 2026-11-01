@@ -1,0 +1,53 @@
+{
+  "title": "Noise control change (cycled quickly on the stem)",
+  "config": {
+    "mode": "auto"
+  },
+  "state": {
+    "name": "AirPods 4",
+    "kind": "airpods4",
+    "connected": true,
+    "left": {
+      "level": 82,
+      "present": true
+    },
+    "right": {
+      "level": 77,
+      "present": true
+    },
+    "case": {
+      "level": 41,
+      "present": false,
+      "stale": true,
+      "last_seen_secs": 1800
+    },
+    "listening_mode": "noise_cancellation",
+    "modes": [
+      "off",
+      "transparency",
+      "adaptive",
+      "noise_cancellation"
+    ]
+  },
+  "events": [
+    {
+      "t_ms": 0,
+      "state": {
+        "listening_mode": "transparency"
+      }
+    },
+    {
+      "t_ms": 1500,
+      "state": {
+        "listening_mode": "adaptive"
+      }
+    },
+    {
+      "t_ms": 3000,
+      "state": {
+        "listening_mode": "noise_cancellation"
+      }
+    }
+  ],
+  "end_ms": 9000
+}
