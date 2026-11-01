@@ -6,6 +6,14 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+### Documentation
+- **The README opens with the real thing in motion.** New 60 fps demos with transparent
+  backgrounds: the Purist island opening into its card as the 3D case spins open, its
+  alerts, the app window connecting and moving between tabs (in your GitHub theme), and
+  the 3D clips on their own. Outdated screenshots are gone.
+- `tools/visual-qa/showcase.py` records them from the real apps on the test clock, and
+  `kase --ui-demo` can now record every frame of the window (`src/ui/window/record.rs`).
+
 ## [1.0.4] - 2026-11-01
 
 ### Fixed
