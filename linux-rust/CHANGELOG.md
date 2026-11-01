@@ -6,16 +6,21 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-01
+
+Kase 1.0: a calm island, two new 3D moments for AirPods 4, one shared look, and steadier
+audio. Full notes in [`release-notes/v1.0.0.md`](release-notes/v1.0.0.md).
+
 ### Added
 - **The case spins on the first connect of the day.** AirPods 4 opened at the desk for the
   first time in a while get a new animation: the closed case turns once, the lid opens and
   both pods spiral up out of it, settling with a small bounce. Later connects the same day
-  play the familiar case-open clip.
+  play the familiar case-open clip. ([#57])
 - **A put-away animation.** Putting both pods back shows the case card with the pods
-  dropping in and the lid closing.
+  dropping in and the lid closing. ([#57])
 - **Design rules and journeys.** `docs/DESIGN.md` (Apple's Live Activities rules as the
   base, plus Kase's 3D layer) and `docs/JOURNEYS.md` (what the island shows in ten
-  everyday moments) are what every visual change is now checked against.
+  everyday moments) are what every visual change is now checked against. ([#57])
 - **Frame-exact visual tests.** `just visual-journeys` plays those ten journeys on a test
   clock and records every frame into filmstrips, videos and automatic checks. ([#55])
 
@@ -24,7 +29,7 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
   the AirPods to finish reporting before it reacts, so putting the pods away one at a time
   no longer flips between "Left charging", the full card and "Case open". Alerts of the
   same kind join up ("AirPods charging"), an open card updates in place instead of being
-  swapped out, and a new message waits until the current one has been on screen for 1.2 s.
+  swapped out, and a new message waits until the current one has been on screen for 1.2 s. ([#57])
 - **Low battery warns once.** A level wobbling around 20% no longer repeats the warning;
   it comes back after charging or once the level rises 5 points.
 - **The case going on a charger is announced** while the pods sit in the open case.
@@ -48,28 +53,27 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
   Kase now uses that as a second opinion: it never takes the AirPods back while they say a
   call is on, waits (up to a minute) while they say the iPhone is still playing even if the
   iPhone said it stopped, and brings them home when they say nothing plays even if the
-  iPhone never said it stopped.
-
+  iPhone never said it stopped. ([#54])
 - **A lighter restart after the AirPods mic switches off.** Kase used to rebuild the whole
   AirPods output (a profile switch) every time the mic switched back, to stop the right pod
   going silent. It now just restarts the output on a fresh Bluetooth link, a gap of a
-  fraction of a second, and only falls back to the full rebuild if sound doesn't come back.
+  fraction of a second, and only falls back to the full rebuild if sound doesn't come back. ([#56])
 - **Audio profiles are no longer saved.** Profile changes go straight to PipeWire without
   saving, so a temporary one (the "off" step of a rebuild, a fallback codec) can never be
-  restored at the next connect. Kase falls back to the old way where that isn't possible.
+  restored at the next connect. Kase falls back to the old way where that isn't possible. ([#56])
 - **Tidy before sleep.** Kase now asks the PC to wait a moment before suspending (at most
   3 s) and stops the AirPods sessions first, so the desk mic, speakers and volume are back
-  before the Bluetooth link drops. Nothing reconnects until the PC wakes.
+  before the Bluetooth link drops. Nothing reconnects until the PC wakes. ([#56])
 
 ### Security
 - Updated `crossbeam-epoch`, `quick-xml` and `wayland-scanner` for RUSTSEC-2026-0204,
-  -0194 and -0195 (`quick-xml` is only used while building).
+  -0194 and -0195 (`quick-xml` is only used while building). ([#54])
 
 ### Fixed
 - **A Disconnect pressed just before quitting is remembered.** Kase waits 3 s before saving
   a Disconnect (so switching Bluetooth off isn't mistaken for one); quitting inside that
   window used to lose it, and the AirPods reconnected on the next start. Kase now saves it
-  on the way out whenever Bluetooth is still on.
+  on the way out whenever Bluetooth is still on. ([#53])
 
 ## [0.11.0] - 2026-11-01
 
@@ -601,6 +605,14 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 ### Fixed
 - Audio no longer stays silent after the AirPods reconnect ("walked away and came back").
 
+[Unreleased]: https://github.com/DaBarkle/kase/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/DaBarkle/kase/compare/v0.11.0...v1.0.0
+[0.11.0]: https://github.com/DaBarkle/kase/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/DaBarkle/kase/compare/v0.9.6...v0.10.0
+[0.9.6]: https://github.com/DaBarkle/kase/compare/v0.9.5...v0.9.6
+[0.9.5]: https://github.com/DaBarkle/kase/compare/v0.9.4...v0.9.5
+[0.9.4]: https://github.com/DaBarkle/kase/compare/v0.9.3...v0.9.4
+[0.9.3]: https://github.com/DaBarkle/kase/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/DaBarkle/kase/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/DaBarkle/kase/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/DaBarkle/kase/compare/v0.8.3...v0.9.0
@@ -653,4 +665,8 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#49]: https://github.com/DaBarkle/kase/pull/49
 [#50]: https://github.com/DaBarkle/kase/pull/50
 [#51]: https://github.com/DaBarkle/kase/pull/51
+[#53]: https://github.com/DaBarkle/kase/pull/53
+[#54]: https://github.com/DaBarkle/kase/pull/54
 [#55]: https://github.com/DaBarkle/kase/pull/55
+[#56]: https://github.com/DaBarkle/kase/pull/56
+[#57]: https://github.com/DaBarkle/kase/pull/57

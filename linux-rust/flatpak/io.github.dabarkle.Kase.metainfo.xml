@@ -97,6 +97,13 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.0.0" date="2026-11-01">
+      <description>
+        <p>Kase 1.0. The island tells one calm story for each thing you do: it waits for the AirPods to finish reporting, joins alerts of the same kind, updates an open card in place and warns about a low battery once.</p>
+        <p>AirPods 4 get two new 3D moments: the case spins and the pods spiral out on the first connect of the day, and putting both pods back shows them dropping in and the lid closing.</p>
+        <p>The island and the window share one Apple-inspired palette and set of springs, the AirPods tab keeps its shape for every model, and audio after the AirPods mic, sleep and switching back from an iPhone is steadier.</p>
+      </description>
+    </release>
     <release version="0.11.0" date="2026-11-01">
       <description>
         <p>AirPods 4 get a 3D case-open animation: the lid swings open and the pods rise out on the case card and the AirPods tab, smooth at any refresh rate.</p>
