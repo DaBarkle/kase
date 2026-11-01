@@ -549,8 +549,9 @@ pub fn toggle(theme: &Theme, status: toggler::Status) -> toggler::Style {
         background_border_width: 0.0,
         background_border_color: Color::TRANSPARENT,
         foreground: Background::Color(with_alpha(Color::WHITE, alpha)),
-        foreground_border_width: 0.0,
-        foreground_border_color: Color::TRANSPARENT,
+        // A hairline keeps the white knob visible on the pale off track in light mode.
+        foreground_border_width: if t.dark { 0.0 } else { 1.0 },
+        foreground_border_color: black(0.10 * alpha),
         text_color: None,
         border_radius: None,
         padding_ratio: 0.09,
@@ -574,8 +575,9 @@ pub fn slide(theme: &Theme, status: slider::Status) -> slider::Style {
         handle: slider::Handle {
             shape: slider::HandleShape::Circle { radius: 10.0 },
             background: Background::Color(knob),
-            border_width: if t.dark { 0.0 } else { 0.5 },
-            border_color: black(0.08),
+            // The white knob sits on a white card in light mode: give it an edge.
+            border_width: if t.dark { 0.0 } else { 1.0 },
+            border_color: black(0.16),
         },
     }
 }

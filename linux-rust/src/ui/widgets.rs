@@ -295,6 +295,8 @@ pub enum Ink {
     Faint,
     Green,
     Accent,
+    /// Light ink on a black surface (the island), whatever the theme.
+    OnDark,
 }
 
 impl Ink {
@@ -305,6 +307,7 @@ impl Ink {
             Ink::Faint => t.text_faint,
             Ink::Green => t.green,
             Ink::Accent => t.accent,
+            Ink::OnDark => Color::from_rgba(1.0, 1.0, 1.0, 0.92),
         }
     }
 }
