@@ -176,13 +176,22 @@ impl App {
         lines = lines.push(status_line(&s, if from.is_some() { fade } else { 1.0 }));
         let glow = self.anim(Anim::Glow, 1.0);
         let width = self.anim(Anim::PillWidth, pill_width(&s));
+        // The text is laid out at its own width and only clipped by the springing pill:
+        // squeezed into a narrower box, iced lays it out with no room and draws nothing,
+        // so the text blinked whenever the width spring dipped under its target.
+        let lines = container(lines).padding(Padding {
+            top: 9.0,
+            bottom: 9.0,
+            left: 14.0,
+            right: 0.0,
+        });
+        let lines = scrollable(lines)
+            .direction(scrollable::Direction::Horizontal(
+                scrollable::Scrollbar::hidden(),
+            ))
+            .width(Length::Fill)
+            .height(Length::Shrink);
         container(lines)
-            .padding(Padding {
-                top: 9.0,
-                bottom: 9.0,
-                left: 14.0,
-                right: 0.0,
-            })
             .width(Length::Fixed(width.max(40.0)))
             .clip(true)
             .style(style::status_island(

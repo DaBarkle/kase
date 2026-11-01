@@ -6,6 +6,12 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+### Fixed
+- **The status pill in the window no longer flickers.** While its width settled after a
+  change, its text vanished on every frame the width dipped a fraction under the text's
+  own width, so "Connected · Adaptive" blinked for about a second. The text now keeps its
+  full width and the pill only clips it.
+
 ### Documentation
 - **The README opens with the real thing in motion.** New 60 fps demos with transparent
   backgrounds: the Purist island opening into its card as the 3D case spins open, its
@@ -13,6 +19,7 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
   the 3D clips on their own. Outdated screenshots are gone.
 - `tools/visual-qa/showcase.py` records them from the real apps on the test clock, and
   `kase --ui-demo` can now record every frame of the window (`src/ui/window/record.rs`).
+  It checks every encoded frame against the recording and catches one-frame blinks.
 
 ## [1.0.4] - 2026-11-01
 

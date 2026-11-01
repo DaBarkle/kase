@@ -613,6 +613,8 @@ impl App {
             "frame": crate::testclock::frame(),
             "t_ms": (t_ms * 1000.0).round() / 1000.0,
             "tab": self.tab.label(),
+            "status": self.shown_status.as_ref().map(|s| format!("{} | {:?}", s.headline, s.detail)),
+            "prev_status": self.prev_status.as_ref().map(|s| s.headline.clone()),
             "animating": animating,
             "files": name.map(|n| serde_json::json!({ "window": n })),
         }));
