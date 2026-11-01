@@ -672,7 +672,8 @@ kase-overlay --demo --step 3 --size extra_large  # one sample state, at a given 
 </details>
 
 **Testing.** Every pull request runs the full test suite with a coverage floor and builds
-the Flatpak. Hardware test steps for a release are in [`TESTING.md`](linux-rust/docs/TESTING.md),
+the Flatpak. Every screen and state can be screenshotted headlessly and compared before and after with the
+[visual QA harness](linux-rust/tools/visual-qa/README.md). Hardware test steps for a release are in [`TESTING.md`](linux-rust/docs/TESTING.md),
 and every change is listed in the [changelog](linux-rust/CHANGELOG.md).
 
 **Contributing.** Bug reports, ideas and pull requests are welcome in
