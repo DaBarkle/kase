@@ -1,6 +1,6 @@
 //! `--ui-demo[=scenario]`: seeds the hub with fake state so the UI can be previewed and
 //! screenshotted without Bluetooth. Scenarios: airpods4 (default), pro, max, low, disconnected,
-//! incase, putaway, empty, btoff.
+//! incase, putaway, anc, empty, btoff.
 
 use crate::core::battery::ComponentBattery;
 use crate::core::models::ModelKind;
@@ -77,6 +77,14 @@ pub fn seed(hub: &Hub, scenario: &str) {
                 d.battery.left = comp(9, false);
                 d.battery.right = comp(17, false);
                 d.battery.case = stale(12, 42);
+            }
+            "anc" => {
+                // AirPods 4 with noise cancellation, connected and out of the case.
+                d.model = ModelKind::AirPods4Anc;
+                d.model_number = Some("A3056".into());
+                d.in_case = false;
+                d.listening_mode = Some(0x02);
+                d.conversation_awareness = Some(true);
             }
             "elsewhere" => {
                 d.owns_audio = Some(false);

@@ -18,19 +18,18 @@ and AirPods that switch between your iPhone and your PC the way they do with a M
 
 <br>
 
-<img src="linux-rust/docs/screenshots/island-tour.webp" width="450" alt="The island over a game: it opens into a card with a ring for each pod and the case while light runs round its edge, folds into a slim island, then morphs into a Case charging alert with a green glow and a Transparency alert as the noise control mode changes">
+<img src="linux-rust/docs/media/hero.webp" width="560" alt="The island opens from a pill into a card as the case opens; a 3D AirPods 4 case turns a full circle, the lid opens and both pods spiral up out of it while rings fill for the left pod, the right pod and the case. The pods come out, the card folds into a slim island, then shows Transparency as the noise control mode changes">
 
-<br>
+<br><br>
 
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="linux-rust/docs/screenshots/window-airpods-light.png">
-  <img src="linux-rust/docs/screenshots/window-airpods.png" width="280" alt="The AirPods tab: a status island reading Right AirPod low, three battery rings and the listening mode tiles">
+  <source media="(prefers-color-scheme: light)" srcset="linux-rust/docs/media/window-light.webp">
+  <img src="linux-rust/docs/media/window-dark.webp" width="330" alt="The Kase window as the AirPods connect: the closed case opens with the pods rising out, the status pill turns green and the rings fill one after another while the numbers count up. Noise control moves to Transparency, then Adaptive; the Island and Settings tabs slide in, and it returns to AirPods">
 </picture>
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="linux-rust/docs/screenshots/window-island-light.png">
-  <img src="linux-rust/docs/screenshots/window-island.png" width="280" alt="The Island tab: a preview screen for placing the overlay, its behaviour in games, style, size and opacity">
-</picture>
-<img src="linux-rust/docs/screenshots/window-settings.png" width="280" alt="The Settings tab: appearance, start at login, rename, stem press track control, AirPods mic switch and the AirPods' own settings">
+&nbsp;&nbsp;
+<img src="linux-rust/docs/media/case-3d.webp" width="300" alt="The 3D AirPods 4 case on its own: it spins a full turn, the lid opens and the pods spiral up out of it; then the pods drop back in and the lid closes">
+
+<sub>Every frame above is the real app, recorded frame by frame at 60 fps (see <a href="#recording-the-demos">Recording the demos</a>).</sub>
 
 </div>
 
@@ -107,8 +106,6 @@ label dims while that pod is out of your ear. A change that arrives mid-animatio
 motion instead of restarting it.
 
 <div align="center">
-<img src="linux-rust/docs/screenshots/island-card.png" width="368" alt="The island's card: AirPods 4, Noise Cancellation, with rings for the left pod at 82%, the right pod at 77% and the case at 46%, and a spectrum of light running round its edge">
-<br>
 <img src="linux-rust/docs/screenshots/island-compact.png" width="204" alt="The slim island at rest: L 82%, R 77% and the case at 46%">
 </div>
 
@@ -117,7 +114,7 @@ then folds into a **slim island** with all three levels. When something happens 
 into a short **alert** that names the one thing that changed:
 
 <div align="center">
-<img src="linux-rust/docs/screenshots/island-alerts.png" width="640" alt="Eight alerts: Case charging in green, Right AirPod low in amber, Playing on iPhone and Back on this PC in blue, Transparency, AirPods Mic, AirPods Mic Unavailable, and AirPods 4 Disconnected">
+<img src="linux-rust/docs/media/alerts.webp" width="380" alt="The slim island morphs into Playing on iPhone when the iPhone takes the audio, then Back on this PC, then AirPods Mic after a stem hold, then Right AirPod low">
 </div>
 
 The island stays calm: one thing you do is one message. Kase waits a moment for the
@@ -139,17 +136,11 @@ Island tab.
 
 #### Styles
 
-<p align="center">
-  <img src="linux-rust/docs/screenshots/island-purist.png" width="350" alt="Purist style: a flat black island with a hairline edge">
-  &nbsp;
-  <img src="linux-rust/docs/screenshots/island-classic.png" width="370" alt="Classic style: a smoked glass island with a sheen and a soft shadow">
-</p>
-
-- **Purist** (default, left) is the Dynamic Island as it really is: solid flat black with a
-  hairline edge. When something happens, light runs round the border in that event's
-  colour, and after under two seconds the island is still again.
-- **Classic** (right) is smoked glass with a sheen and a soft shadow. Its **Glass** slider
-  goes from the island's pure black to clear glass.
+- **Purist** (default, shown throughout this page) is the Dynamic Island as it really is:
+  solid flat black with a hairline edge. When something happens, light runs round the
+  border in that event's colour, and after under two seconds the island is still again.
+- **Classic** is smoked glass with a sheen and a soft shadow. Its **Glass** slider goes
+  from the island's pure black to clear glass.
 
 Each kind of event has its own light, so you can tell what happened from the corner of
 your eye:
@@ -188,10 +179,6 @@ Pick how much of the island you want to see in the **Island** tab:
   video is in front, and stays solid on the desktop.
 
 #### Switching devices
-
-<div align="center">
-<img src="linux-rust/docs/screenshots/island-switch.webp" width="450" alt="The island shows Right AirPod low with an amber glow, then Playing on iPhone with a blue glow when the iPhone takes the audio, then Back on this PC when the PC takes it back">
-</div>
 
 Your PC is home. When your iPhone plays something, it gets the AirPods: Kase pauses what's
 playing here and the island shows **Playing on iPhone**, while the AirPods stay connected.
@@ -299,10 +286,6 @@ sudo systemctl restart bluetooth
 </details>
 
 ### The AirPods mic switch
-
-<div align="center">
-<img src="linux-rust/docs/screenshots/island-mic.webp" width="450" alt="The island opens into its card, gives a quick shake for AirPods Mic Unavailable, shows AirPods Mic with an orange glow after a stem hold, then AirPods 4 Disconnected">
-</div>
 
 Keep your good desk mic for gaming and calls, and switch to the AirPods' mic when you walk
 away from the desk, without dropping the music to phone-call quality. Turn on **AirPods mic
@@ -685,6 +668,14 @@ the Flatpak. Every screen and state can be screenshotted headlessly and compared
 [journeys](linux-rust/docs/JOURNEYS.md) on a test clock and records every frame of every
 animation. The look and motion rules are in [`DESIGN.md`](linux-rust/docs/DESIGN.md). Hardware test steps for a release are in [`TESTING.md`](linux-rust/docs/TESTING.md),
 and every change is listed in the [changelog](linux-rust/CHANGELOG.md).
+
+<a id="recording-the-demos"></a>**Recording the demos.** The clips at the top of this page are not
+screen recordings. [`showcase.py`](linux-rust/tools/visual-qa/showcase.py) runs the real
+`kase` and `kase-overlay` in a headless compositor on the test clock, so the app draws and
+saves every frame at an exact time, 60 a second, however slow the machine. The island is
+drawn on a transparent surface already, and the 3D clips come straight from the renders in
+[`assets/anim`](linux-rust/assets/anim). Run `tools/visual-qa/showcase.py` after a UI change
+to bring them up to date.
 
 **Contributing.** Bug reports, ideas and pull requests are welcome in
 [issues](https://github.com/DaBarkle/kase/issues). For code changes, please keep to

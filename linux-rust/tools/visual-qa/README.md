@@ -96,6 +96,23 @@ The app side: `KASE_TEST_STEP_MS` turns the test clock on (`src/testclock.rs`) a
 `KASE_SHOT_DIR` says where frames go; `kase-overlay --script FILE` plays a journey. Normal
 runs never set them.
 
+## Showcase: the README demos
+
+`showcase.py` records the animated WebPs at the top of the main README (`docs/media/`):
+the island playing the journeys in `showcase/`, the app window connecting and moving
+between tabs (dark and light), and the 3D clips. Both apps run on the test clock at 60 fps
+and save every frame themselves, so nothing is screen-recorded and every frame is exact.
+
+```bash
+tools/visual-qa/showcase.py                # all clips (a few minutes each, mostly encoding)
+tools/visual-qa/showcase.py hero window    # by name prefix
+tools/visual-qa/showcase.py --encode-only  # re-encode the last recording
+```
+
+The window recorder is `src/ui/window/record.rs`: with `KASE_TEST_STEP_MS` and
+`KASE_SHOT_DIR` set, `kase --ui-demo` saves every frame and plays `KASE_UI_SCRIPT` (timed
+tab, scenario and appearance changes) until `KASE_TEST_END_MS`.
+
 ## Notes
 
 - Rendering is Mesa's software Vulkan (lavapipe), so colours and anti-aliasing match a real

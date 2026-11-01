@@ -1,0 +1,65 @@
+{
+  "title": "README alerts: iPhone takes the audio and gives it back, AirPods mic, low battery",
+  "note": "Showcase clip for the README (showcase.py).",
+  "config": {
+    "mode": "auto"
+  },
+  "state": {
+    "name": "AirPods 4",
+    "kind": "airpods4",
+    "connected": true,
+    "left": {
+      "level": 82,
+      "present": true
+    },
+    "right": {
+      "level": 77,
+      "present": true
+    },
+    "case": {
+      "level": 41,
+      "present": false,
+      "stale": true,
+      "last_seen_secs": 1800
+    },
+    "listening_mode": "noise_cancellation",
+    "modes": [
+      "off",
+      "transparency",
+      "adaptive",
+      "noise_cancellation"
+    ],
+    "mic": "desk"
+  },
+  "events": [
+    {
+      "t_ms": 0,
+      "state": {
+        "elsewhere": true,
+        "elsewhere_name": "iPhone"
+      }
+    },
+    {
+      "t_ms": 4200,
+      "state": {
+        "elsewhere": false,
+        "elsewhere_name": null
+      }
+    },
+    {
+      "t_ms": 8400,
+      "state": {
+        "mic": "airpods"
+      }
+    },
+    {
+      "t_ms": 12600,
+      "state": {
+        "right": {
+          "level": 20
+        }
+      }
+    }
+  ],
+  "end_ms": 16800
+}
