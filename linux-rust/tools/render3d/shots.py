@@ -216,6 +216,7 @@ def main():
     ap.add_argument("--preview", action="store_true")
     ap.add_argument("--res", type=int, default=440)
     ap.add_argument("--samples", type=int, default=64)
+    ap.add_argument("--resume", action="store_true", help="keep frames already in OUT")
     a = ap.parse_args(argv)
     pose, length = CLIPS[a.clip]
     r = rig.Rig(a.gltf)
@@ -236,6 +237,7 @@ def main():
     sc.frame_start, sc.frame_end = 1, frames
     os.makedirs(a.out, exist_ok=True)
     sc.render.filepath = os.path.join(a.out, "f")
+    sc.render.use_overwrite = not a.resume
     print(f"{a.clip}: {frames} frames at {FPS} fps, {res} px")
     bpy.ops.render.render(animation=True)
 
