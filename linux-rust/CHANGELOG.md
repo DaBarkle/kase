@@ -6,6 +6,15 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-02
+
+### Fixed
+- **The live 3D case moves the pod you actually moved.** Kase tells left from right by
+  the order the AirPods list the pods in their battery report, but it read that order
+  from its running battery list, which kept the order of an older report. When the
+  AirPods swapped which pod they list first, the case could put the left pod in when you
+  returned the right one. The list now follows each new report's order. ([#66])
+
 ## [1.1.0] - 2026-11-02
 
 ### Added
@@ -750,6 +759,7 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#56]: https://github.com/DaBarkle/kase/pull/56
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
+[#66]: https://github.com/DaBarkle/kase/pull/66
 [#65]: https://github.com/DaBarkle/kase/pull/65
 [#64]: https://github.com/DaBarkle/kase/pull/64
 [#62]: https://github.com/DaBarkle/kase/pull/62

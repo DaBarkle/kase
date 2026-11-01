@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.1.1" date="2026-11-02">
+      <description>
+        <p>The live 3D case now always moves the AirPod you actually took out or put back.</p>
+      </description>
+    </release>
     <release version="1.1.0" date="2026-11-02">
       <description>
         <p>With AirPods 4, the 3D case on the case card now follows the real case: the lid opens and closes with yours, and each AirPod lifts out or drops back in as you take it out or put it back.</p>
