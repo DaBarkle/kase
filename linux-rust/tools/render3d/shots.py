@@ -35,7 +35,7 @@ def clamp01(x: float) -> float:
 # pose, so a pod that is out stays in frame and clear of the lid as it closes (collide.py
 # lid-close-L/R; the lid sweeps through the space right above the wells).
 HOVER_LIFT_MM = -6.0
-HOVER_OUT_MM = 16.0
+HOVER_OUT_MM = 15.0
 
 
 def rise(t: float, twirl: bool, hover: bool = False):
@@ -52,12 +52,16 @@ def rise(t: float, twirl: bool, hover: bool = False):
     seated = 1.0 - u
     # Keep the height: lifting a seated pod by SEAT_DEPTH_MM is the out height.
     lift = lift * clamp01(seated) if u > 0 else lift
-    up, side = (HOVER_LIFT_MM * u, HOVER_OUT_MM * u) if hover else (0.0, 0.0)
+    # Beside the case, the sideways move doesn't bounce: past "out" it would leave the frame.
+    up, side = (HOVER_LIFT_MM * u, HOVER_OUT_MM * clamp01(u)) if hover else (0.0, 0.0)
     if not twirl:
         return seated, 0.0, lift + up, 0.0, side
     w = clamp01(step(t - 0.26, 0.8, 0.0))
     bump = math.sin(math.pi * w)
-    return seated, 0.0, lift + up + 3.5 * bump, 360.0 * w, side + 8.0 * bump
+    # The outward drift of the vortex clears the other pod; a hovering pod already moves
+    # well clear of it, and drifting further would take it out of the frame.
+    drift = 0.0 if hover else 8.0
+    return seated, 0.0, lift + up + 3.5 * bump, 360.0 * w, side + drift * bump
 
 
 def spin_open(t: float):
