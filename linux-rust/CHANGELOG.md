@@ -14,6 +14,27 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 - `tools/visual-qa/showcase.py` records them from the real apps on the test clock, and
   `kase --ui-demo` can now record every frame of the window (`src/ui/window/record.rs`).
 
+## [1.0.4] - 2026-11-01
+
+### Fixed
+- **The left stem hold swaps mics again with the iPhone connected alongside.** The AirPods
+  send stem holds to the device they mark active, and that mark could stay on the iPhone
+  while the PC played, so the hold changed noise mode. Kase now claims the AirPods when it
+  sees that, at most every 30 s. ([#62])
+
+## [1.0.3] - 2026-11-01
+
+### Fixed
+- **The PC no longer grabs the AirPods back while the iPhone is playing.** After the iPhone
+  took them, Kase kept paging them, and a page that got through pulled them back to the PC
+  mid-video. It now waits while the AirPods' own adverts say another device is playing or
+  on a call. ([#61])
+- **Kase sees the iPhone again after connecting while the iPhone is busy.** AirPods busy
+  with another device can ignore Kase's whole setup: no battery, ear, audio source or stem
+  claim. Kase then couldn't tell the iPhone was playing (so it never handed over), and the
+  left stem hold changed noise control instead of swapping mics. The setup is now sent
+  again until the AirPods answer. ([#61])
+
 ## [1.0.2] - 2026-11-01
 
 ### Fixed
@@ -704,4 +725,6 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#56]: https://github.com/DaBarkle/kase/pull/56
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
+[#62]: https://github.com/DaBarkle/kase/pull/62
+[#61]: https://github.com/DaBarkle/kase/pull/61
 [#60]: https://github.com/DaBarkle/kase/pull/60

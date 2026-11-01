@@ -350,6 +350,7 @@ impl AdapterState_ {
                     away.since.elapsed(),
                 );
                 !self.running.contains_key(addr)
+                    && !busy_elsewhere(**addr)
                     && away
                         .last_try
                         .is_none_or(|t| t.elapsed() >= retry_interval(away.since.elapsed(), quick))
@@ -357,6 +358,17 @@ impl AdapterState_ {
             .map(|(addr, _)| *addr)
             .collect()
     }
+}
+
+/// Paging AirPods while another device plays or calls on them takes them from it (seen
+/// 2026-11-01: the PC came back 90 s after the iPhone took them and grabbed them mid-video),
+/// so wait until their adverts say that device went quiet.
+fn busy_elsewhere(addr: Address) -> bool {
+    use crate::bluetooth::le::Activity;
+    matches!(
+        crate::bluetooth::le::activity(addr),
+        Some((Activity::Music | Activity::Call, _))
+    )
 }
 
 /// Whether away AirPods get the quick (back-to-back) retries: only while someone is at the
@@ -367,8 +379,8 @@ fn quick_retry(at_pc: bool, in_case: bool, bounced: bool, away_for: Duration) ->
 }
 
 /// Background connect attempts while AirPods are away: every 20 s for the first 3 minutes,
-/// then every minute for as long as it takes. A failed attempt costs nothing and connecting
-/// never takes the audio from an iPhone that is playing, so there is no reason to give up
+/// then every minute for as long as it takes, skipping while another device plays on them
+/// ([`busy_elsewhere`]). A failed attempt costs nothing, so there is no reason to give up
 /// or slow down further: the AirPods come back within a minute whenever they are back.
 /// `quick` (they went into the case and the user is at the PC, nothing fullscreen): page
 /// back to back for the first 15 minutes, so opening the lid connects them within seconds.
