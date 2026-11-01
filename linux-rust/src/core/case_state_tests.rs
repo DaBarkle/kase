@@ -301,3 +301,71 @@ fn replay_of_real_reports_maps_every_pod_correctly() {
     assert!(checked > 1000, "the replay should cover the log");
     assert_eq!(wrong, 0);
 }
+
+/// David's test on 1 Nov 2026 at 22:49, as the battery service gets it (each packet
+/// merged into the running list first). The right pod went back in, but a stale order
+/// in the merged list put the left one in.
+#[test]
+fn real_right_pod_back_in_through_the_merged_list() {
+    use crate::bluetooth::aacp::merge_battery_info;
+    use BatteryComponent::{Case, Left, Right};
+    use BatteryStatus::{Charging as C, Disconnected as D, NotCharging as N};
+    let mut t = CaseTracker::default();
+    let mut merged = Vec::new();
+    let now = Instant::now();
+    let mut battery = |t: &mut CaseTracker, raw: Vec<BatteryInfo>| {
+        merge_battery_info(&mut merged, &raw);
+        t.on_battery(&merged, now);
+    };
+    // Lid open, right pod taken out first (right is primary).
+    battery(&mut t, bat(&[(Right, N), (Left, C), (Case, N)]));
+    t.on_ear(InEar, InCase, now);
+    assert_eq!((pods(&t).1, pods(&t).2), (Pod::Seated, Pod::Out));
+    t.on_ear(InEar, OutOfEar, now);
+    battery(&mut t, bat(&[(Right, N), (Left, N), (Case, D)]));
+    assert_eq!(pods(&t), (Lid::Open, Pod::Out, Pod::Out));
+    // Both worn; the left becomes primary.
+    t.on_ear(InEar, InEar, now);
+    t.on_ear(OutOfEar, InEar, now);
+    t.on_ear(InEar, OutOfEar, now);
+    battery(&mut t, bat(&[(Left, N), (Right, N), (Case, D)]));
+    t.on_ear(InEar, OutOfEar, now);
+    // The right pod goes back in.
+    battery(&mut t, bat(&[(Left, N), (Right, N), (Case, D)]));
+    t.on_ear(InEar, InCase, now);
+    assert_eq!(
+        pods(&t),
+        (Lid::Open, Pod::Out, Pod::Seated),
+        "the right pod went in"
+    );
+}
+
+/// The same evening at 22:34: right out, then the right goes into an ear while the left
+/// stays in the case, with the primary swapping on the way.
+#[test]
+fn real_right_out_with_a_primary_swap_through_the_merged_list() {
+    use crate::bluetooth::aacp::merge_battery_info;
+    use BatteryComponent::{Case, Left, Right};
+    use BatteryStatus::{Charging as C, NotCharging as N};
+    let mut t = CaseTracker::default();
+    let mut merged = Vec::new();
+    let now = Instant::now();
+    let mut battery = |t: &mut CaseTracker, raw: Vec<BatteryInfo>| {
+        merge_battery_info(&mut merged, &raw);
+        t.on_battery(&merged, now);
+    };
+    battery(&mut t, bat(&[(Left, C), (Right, C), (Case, N)]));
+    t.on_ear(InCase, InCase, now);
+    t.on_ear(InCase, OutOfEar, now);
+    assert_eq!(pods(&t), (Lid::Open, Pod::Seated, Pod::Out));
+    battery(&mut t, bat(&[(Left, C), (Right, N), (Case, N)]));
+    t.on_ear(OutOfEar, InCase, now);
+    battery(&mut t, bat(&[(Right, N), (Left, C), (Case, N)]));
+    assert_eq!(
+        pods(&t),
+        (Lid::Open, Pod::Seated, Pod::Out),
+        "nothing moved"
+    );
+    t.on_ear(InEar, InCase, now);
+    assert_eq!(pods(&t), (Lid::Open, Pod::Seated, Pod::Out));
+}

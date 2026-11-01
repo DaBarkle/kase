@@ -85,6 +85,14 @@ pub fn merge_battery_info(existing: &mut Vec<BatteryInfo>, new: &[BatteryInfo]) 
             existing.push(rec.clone());
         }
     }
+    // Keep the order of the latest packet: the AirPods list the primary pod first, and
+    // that order is how left and right are told apart in the ear reports (case_state).
+    // A stale order put the wrong pod in or out of the 3D case.
+    existing.sort_by_key(|b| {
+        new.iter()
+            .position(|r| r.component == b.component)
+            .unwrap_or(usize::MAX)
+    });
 }
 
 pub(super) fn ear_status_from_u8(v: u8) -> Option<EarDetectionStatus> {
