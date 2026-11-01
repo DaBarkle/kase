@@ -414,6 +414,10 @@ pub(super) async fn watch_route(
         let state = aacp.state.lock().await;
         (state.maybe_worn(), state.peer_streaming)
     };
+    let advert = mac_s
+        .parse::<Address>()
+        .ok()
+        .and_then(crate::bluetooth::le::activity);
     let inputs = {
         let state = route.lock();
         let now = Instant::now();
@@ -438,6 +442,7 @@ pub(super) async fn watch_route(
                 && !crate::media_controller::auto_paused_recently(),
             backing_off: state.backoff_until.is_some_and(|until| now < until),
             return_home: crate::utils::app_setting_bool(RETURN_HOME_SETTING).unwrap_or(true),
+            advert,
         }
     };
     let verdict = decide(&inputs);
@@ -448,15 +453,15 @@ pub(super) async fn watch_route(
                 return;
             }
             info!(
-                "route: taking the AirPods back ({why}; PC need {:?}, worn {}, other device playing {})",
-                inputs.need, inputs.worn, inputs.peer_streaming
+                "route: taking the AirPods back ({why}; PC need {:?}, worn {}, other device playing {}, adverts say {:?})",
+                inputs.need, inputs.worn, inputs.peer_streaming, inputs.advert
             );
             route.lock().last_verdict = None;
             let _ = command_tx.send((ControlCommandIdentifiers::OwnsConnection, vec![0x01]));
         }
         Verdict::Wait(why) if changed => info!(
-            "route: leaving the AirPods on the other device ({why}; PC need {:?}, worn {})",
-            inputs.need, inputs.worn
+            "route: leaving the AirPods on the other device ({why}; PC need {:?}, worn {}, adverts say {:?})",
+            inputs.need, inputs.worn, inputs.advert
         ),
         _ => {}
     }

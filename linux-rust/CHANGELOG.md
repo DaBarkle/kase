@@ -6,6 +6,18 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+### Changed
+- **Switching back from the iPhone listens to the AirPods too.** The AirPods' own
+  Bluetooth adverts say whether the device that has them is idle, playing or on a call.
+  Kase now uses that as a second opinion: it never takes the AirPods back while they say a
+  call is on, waits (up to a minute) while they say the iPhone is still playing even if the
+  iPhone said it stopped, and brings them home when they say nothing plays even if the
+  iPhone never said it stopped.
+
+### Security
+- Updated `crossbeam-epoch`, `quick-xml` and `wayland-scanner` for RUSTSEC-2026-0204,
+  -0194 and -0195 (`quick-xml` is only used while building).
+
 ### Fixed
 - **A Disconnect pressed just before quitting is remembered.** Kase waits 3 s before saving
   a Disconnect (so switching Bluetooth off isn't mistaken for one); quitting inside that
