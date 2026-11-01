@@ -51,6 +51,8 @@ use kase::testclock;
 use logic::{Controller, SurfaceAction};
 
 const NAMESPACE: &str = "kase-overlay";
+/// Seconds after the case card starts opening before its animation plays.
+const ART_AFTER: f32 = 0.45;
 
 #[derive(Debug, Clone, Default)]
 struct Args {
@@ -369,13 +371,17 @@ impl Overlay {
 
     /// The case card plays the case-open animation each time it opens with it.
     fn sync_art(&mut self, now: Instant) {
+        // It starts once the card has finished growing, so its best part isn't hidden
+        // behind the morph (docs/DESIGN.md, rich layer timing).
         let want = self.window.is_some()
             && self.ctl.motion.shown == Some(Content::Expanded)
+            && self.ctl.motion.shown_age >= ART_AFTER
             && self
                 .ctl
                 .display_state(now)
                 .is_some_and(|s| island::has_art(&s));
-        self.art.sync(want, self.ctl.config.reduce_motion, now);
+        let clip = want.then_some(self.ctl.case_clip);
+        self.art.show(clip, self.ctl.config.reduce_motion, now);
     }
 
     /// One timer for the next deadline (a pop-up ending), instead of polling.

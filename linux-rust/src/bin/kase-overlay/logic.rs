@@ -12,6 +12,7 @@ use kase::overlay_protocol::{
 };
 
 use crate::settle::{Settler, band, meaningful};
+use kase::ui::anim::Clip;
 
 fn present(c: &Option<ComponentState>) -> bool {
     c.as_ref().is_some_and(|c| c.present)
@@ -123,6 +124,9 @@ fn shows_charging(content: Option<&Content>, state: &OverlayState) -> bool {
 const CASE_CARD: Duration = Duration::from_secs(6);
 /// How long it stays after a pod comes out of the case.
 const CASE_CARD_AFTER_POD_OUT: Duration = Duration::from_secs(2);
+/// The case spins again on a connect this long after the last spin (once a day, in
+/// practice: the AirPods sit in the case overnight).
+const SPIN_AGAIN_AFTER: Duration = Duration::from_secs(6 * 3600);
 /// How long the case card stays after both pods are put away.
 const CASE_CARD_PUT_AWAY: Duration = Duration::from_secs(3);
 /// A presentation stays at least this long before a different one replaces it.
@@ -200,6 +204,10 @@ pub struct Controller {
     card_cap: Option<Instant>,
     /// Lowest battery band already announced per part (left, right, case, headphone).
     low_told: [Option<u8>; 4],
+    /// The clip the case card plays for the moment that opened it.
+    pub case_clip: Clip,
+    /// When the case last played its first-connect spin.
+    last_spin: Option<Instant>,
 }
 
 impl Default for Controller {
@@ -231,6 +239,8 @@ impl Controller {
             news: None,
             card_cap: None,
             low_told: [None; 4],
+            case_clip: Clip::Open,
+            last_spin: None,
         }
     }
 
@@ -458,6 +468,17 @@ impl Controller {
             Some(c) => {
                 self.farewell_until = None;
                 let case_card = state.in_case && c == Content::Expanded;
+                if case_card {
+                    self.case_clip = if put_away {
+                        Clip::PutAway
+                    } else if self.last_spin.is_none_or(|t| now >= t + SPIN_AGAIN_AFTER) {
+                        // The first connect of the day gets the spin; later ones just open.
+                        self.last_spin = Some(now);
+                        Clip::SpinOpen
+                    } else {
+                        Clip::Open
+                    };
+                }
                 self.announce(&c, just_connected, now);
                 self.card_cap = None;
                 self.pop_up(c, now);

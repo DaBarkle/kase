@@ -105,7 +105,7 @@ Apple's system colours; the island always uses the dark values.
 
 Text: primary black 88% / white 92%, secondary 55%, tertiary 30%. Separators are hairlines:
 black 20% (light) / white 15% (dark). The window's backgrounds and surfaces keep Apple's
-grouped colours. In the light theme, the status pill is a light tinted pill, and white
+grouped colours. In the light theme, the status pill is white with a hairline edge, and white
 knobs (toggle, slider) get a hairline edge and a soft shadow.
 
 ## 4. The app window
@@ -121,7 +121,7 @@ knobs (toggle, slider) get a hairline edge and a soft shadow.
 | Segmented control | Height 32, radius 10 |
 | Toggle | 44 x 26 |
 | Slider | Track 4, knob 20 |
-| AirPods tab hero | A 200 px slot for every model: the 3D render for AirPods 4, the model glyph for others, so the page never changes shape |
+| AirPods tab hero | Always present, so the page keeps its shape: a 200 px slot with the 3D render for AirPods 4; a 56 px slot with the model glyph for others (they carry more controls, and the page must fit) |
 
 ## 5. The rich layer (Kase's extension)
 
@@ -129,7 +129,7 @@ knobs (toggle, slider) get a hairline edge and a soft shadow.
 | --- | --- |
 | Where | Case card, the AirPods tab hero, first connect of the day, putting away. Never on Compact or Alerts. |
 | When | Only for the moments in JOURNEYS.md that name a clip; not on routine updates. A reward for moments that matter, not decoration. |
-| Size | Case card art 150 px inside a 156 px block; card 268 tall. Window hero slot 200 px. |
+| Size | Case card art 150 px inside a 156 px block; card 268 tall. Window hero slot 200 px (56 px glyph slot for models without a render). |
 | Timing | The clip starts once the card has finished growing (about 0.45 s); it may run up to 2.6 s; battery numbers appear with the card and never wait for the clip. |
 | Honesty | The clip matches the real state: a closed case for put away and out of range, open with pods for live. |
 | Fallbacks | Never over fullscreen games; Reduce motion shows the clip's last frame; missing frames fall back to the glyph. |

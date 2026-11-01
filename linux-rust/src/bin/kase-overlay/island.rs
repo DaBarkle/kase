@@ -14,6 +14,7 @@
 
 use crate::spring::{Feel, Spring};
 use kase::overlay_protocol::{ComponentState, ListeningMode, MicChoice, OverlayState};
+use kase::ui::tokens;
 
 // --- Geometry (logical px) ------------------------------------------------------
 
@@ -60,23 +61,27 @@ pub const REVEAL: f32 = 0.80;
 pub const STAGGER: f32 = 0.08;
 /// One trip of the light round a charging ring...
 pub const SHEEN_LOOP: f32 = 1.8;
-/// ...for at most three trips, so a charging card left up costs nothing after.
-pub const SHEEN_MAX: f32 = 3.0 * SHEEN_LOOP;
+/// ...once, so the island is still within Apple's 2 s (docs/DESIGN.md, motion rule 2).
+pub const SHEEN_MAX: f32 = SHEEN_LOOP;
 /// A changed percentage rolls to its new value.
 pub const ROLL: f32 = 0.36;
 /// The low battery ring breathes twice.
 pub const BREATHE: f32 = 1.6;
 
-const GROW_W: Feel = Feel::new(0.48, 0.24);
-const GROW_H: Feel = Feel::new(0.54, 0.20);
-const SHRINK: Feel = Feel::new(0.42, 0.06);
-const FADE_IN: Feel = Feel::new(0.26, 0.0);
-const FADE_OUT: Feel = Feel::new(0.32, 0.0);
-const PULSE: Feel = Feel::new(0.36, 0.45);
-const FILL: Feel = Feel::new(0.8, 0.0);
+const fn feel(t: tokens::Spring) -> Feel {
+    Feel::new(t.duration, t.bounce)
+}
+// The height grows a touch behind the width, so the island stretches before it opens.
+const GROW_W: Feel = feel(tokens::GROW);
+const GROW_H: Feel = Feel::new(tokens::GROW.duration + 0.04, tokens::GROW.bounce - 0.03);
+const SHRINK: Feel = feel(tokens::SHRINK);
+const FADE_IN: Feel = feel(tokens::FADE_IN);
+const FADE_OUT: Feel = feel(tokens::FADE_OUT);
+const PULSE: Feel = feel(tokens::POP);
+const FILL: Feel = feel(tokens::FILL);
 /// The purist island's head shake when something failed, as iOS does for a wrong
 /// passcode: quick, and settles in about half a second.
-const SHAKE: Feel = Feel::new(0.22, 0.62);
+const SHAKE: Feel = feel(tokens::SHAKE);
 
 // --- Border light (purist style) -------------------------------------------------
 //

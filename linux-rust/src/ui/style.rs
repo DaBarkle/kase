@@ -23,6 +23,8 @@ pub const INTER_SEMIBOLD: Font = Font {
 pub const GROUP_RADIUS: f32 = 20.0;
 pub const TILE_RADIUS: f32 = 15.0;
 
+use crate::ui::tokens::color;
+
 const fn rgb(hex: u32) -> Color {
     Color::from_rgb8((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
@@ -72,11 +74,11 @@ pub const DARK: Tokens = Tokens {
     text: white(0.92),
     text_dim: white(0.55),
     text_faint: white(0.30),
-    accent: rgb(0x0A84FF),
+    accent: rgb(color::BLUE_DARK),
     on_accent: rgb(0xFFFFFF),
-    green: rgb(0x34C759),
-    amber: rgb(0xFFB340),
-    red: rgb(0xFF453A),
+    green: rgb(color::GREEN_DARK),
+    amber: rgb(color::ORANGE_DARK),
+    red: rgb(color::RED_DARK),
     track: white(0.10),
     switch_off: rgb(0x39393D),
 };
@@ -91,11 +93,11 @@ pub const LIGHT: Tokens = Tokens {
     text: black(0.88),
     text_dim: black(0.50),
     text_faint: black(0.28),
-    accent: rgb(0x007AFF),
+    accent: rgb(color::BLUE_LIGHT),
     on_accent: rgb(0xFFFFFF),
-    green: rgb(0x28A745),
-    amber: rgb(0xE08A00),
-    red: rgb(0xE5342A),
+    green: rgb(color::GREEN_LIGHT),
+    amber: rgb(color::ORANGE_LIGHT),
+    red: rgb(color::RED_LIGHT),
     track: black(0.08),
     switch_off: rgb(0xE3E3E8),
 };
@@ -218,11 +220,9 @@ pub fn status_island(
             (a, b) => a.or(b),
         };
         let s = strength.max(0.0) * weight;
-        let quiet = if t.dark {
-            white(0.10)
-        } else {
-            Color::TRANSPARENT
-        };
+        // Dark: a black pill like the island. Light: a white pill with a hairline, so it
+        // belongs to the page instead of looking dropped in (QA #6).
+        let quiet = if t.dark { white(0.10) } else { black(0.10) };
         let (edge, shadow) = match glow {
             Some(c) => (
                 mix_color(quiet, with_alpha(c, (0.55 * s).min(1.0)), weight),
@@ -235,14 +235,18 @@ pub fn status_island(
             None => (quiet, Shadow::default()),
         };
         container::Style {
-            background: Some(Background::Color(Color::BLACK)),
+            background: Some(Background::Color(if t.dark {
+                Color::BLACK
+            } else {
+                t.surface
+            })),
             border: Border {
                 color: edge,
                 width: 1.0,
                 radius: 999.0.into(),
             },
             shadow,
-            text_color: Some(white(0.92)),
+            text_color: Some(t.text),
             ..Default::default()
         }
     }
@@ -283,12 +287,12 @@ pub fn status_dot(tone: StatusTone, alpha: f32) -> impl Fn(&Theme) -> container:
 }
 
 pub fn status_detail(tone: StatusTone, alpha: f32) -> impl Fn(&Theme) -> iced::widget::text::Style {
-    move |_theme| iced::widget::text::Style {
+    move |theme| iced::widget::text::Style {
         color: Some(with_alpha(
             match tone {
-                StatusTone::Low => DARK.amber,
-                StatusTone::Critical => DARK.red,
-                _ => white(0.55),
+                StatusTone::Low => Tokens::of(theme).amber,
+                StatusTone::Critical => Tokens::of(theme).red,
+                _ => Tokens::of(theme).text_dim,
             },
             alpha,
         )),
@@ -297,8 +301,8 @@ pub fn status_detail(tone: StatusTone, alpha: f32) -> impl Fn(&Theme) -> iced::w
 
 /// Status island headline, faded by `alpha` while it cross-fades.
 pub fn status_headline(alpha: f32) -> impl Fn(&Theme) -> iced::widget::text::Style {
-    move |_theme| iced::widget::text::Style {
-        color: Some(white(0.92 * alpha)),
+    move |theme| iced::widget::text::Style {
+        color: Some(with_alpha(Tokens::of(theme).text, alpha)),
     }
 }
 

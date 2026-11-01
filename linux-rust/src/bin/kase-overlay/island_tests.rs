@@ -356,7 +356,8 @@ fn shake_swings_both_ways_and_comes_home() {
         hi = hi.max(m.shake.value);
         t += 1.0 / 60.0;
     }
-    assert!(lo < -4.0 && hi > 1.0, "swing {lo}..{hi}");
+    // Bounce 0.4 at most (Apple): a clear swing, one small return.
+    assert!(lo < -2.5 && hi > 0.1, "swing {lo}..{hi}");
     assert!(lo > -20.0, "a nudge, not a jump: {lo}");
     assert!(t < 1.0, "settles quickly ({t}s)");
     assert_eq!(m.shake.value, 0.0);

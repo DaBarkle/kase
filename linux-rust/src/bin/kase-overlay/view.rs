@@ -23,6 +23,7 @@ use crate::logic::Controller;
 use crate::purist;
 use crate::quick::{self, Hit, Quick};
 use kase::overlay_protocol::{ComponentState, OverlayPosition, OverlayState, OverlayStyle};
+use kase::ui::tokens::color;
 use kase::ui::widgets::draw_sheen;
 
 /// Transparent room around the island for its shadow.
@@ -30,12 +31,17 @@ pub const PAD: f32 = 14.0;
 /// How far a changing number travels while it rolls.
 const ROLL_TRAVEL: f32 = 7.0;
 
-const GREEN: Color = Color::from_rgb(0.204, 0.820, 0.345);
-const AMBER: Color = Color::from_rgb(1.0, 0.702, 0.251);
-const RED: Color = Color::from_rgb(1.0, 0.271, 0.227);
-/// The purist palette: iOS system colours on black (shared with the app window).
-const BLUE: Color = Color::from_rgb(0.039, 0.518, 1.0);
-const ORANGE: Color = Color::from_rgb(1.0, 0.584, 0.0);
+/// The island's palette: Apple's dark system colours, shared with the window
+/// (`kase::ui::tokens`).
+const fn token(hex: u32) -> Color {
+    let [r, g, b] = color::rgb(hex);
+    Color::from_rgb(r, g, b)
+}
+const GREEN: Color = token(color::GREEN_DARK);
+const AMBER: Color = token(color::ORANGE_DARK);
+const RED: Color = token(color::RED_DARK);
+const BLUE: Color = token(color::BLUE_DARK);
+const ORANGE: Color = token(color::ORANGE_DARK);
 
 /// The font the purist island uses (bundled, so it looks the same everywhere).
 pub const INTER: &str = "Inter";
@@ -705,7 +711,7 @@ fn paint_compact(f: &mut Frame, _w: f32, h: f32, ctx: &Ctx) {
                         )
                     },
                 ),
-                Slot::Case => draw_case_glyph_small(f, Point::new(x + 5.0, cy), label_c),
+                Slot::Case => draw_app_glyph(f, Point::new(x + 5.0, cy), 0.62, label_c),
                 Slot::Headphone => {}
             }
         }
@@ -816,7 +822,7 @@ fn paint_expanded_rows(f: &mut Frame, w: f32, ctx: &Ctx) {
 
     let slots = slots(ctx.state);
     let row_y = 60.0;
-    let seg_w = (w - 2.0 * INSET) / slots.len() as f32;
+    let seg_w = segment_step(w - 2.0 * INSET, slots.len());
     for (i, (idx, comp, slot)) in slots.into_iter().enumerate() {
         draw_segment(
             f,
@@ -837,6 +843,18 @@ fn ear_dim(comp: Option<&ComponentState>) -> f32 {
     } else {
         1.0
     }
+}
+
+/// Width of one battery segment's content (ring, number and label).
+const SEGMENT: f32 = 82.0;
+
+/// Distance between battery segments in a row `avail` wide, so the last one ends at the
+/// inner margin and the card's padding is the same on both sides (QA #10).
+fn segment_step(avail: f32, n: usize) -> f32 {
+    if n <= 1 {
+        return avail;
+    }
+    ((avail - SEGMENT) / (n - 1) as f32).max(SEGMENT)
 }
 
 fn draw_segment(
@@ -1315,7 +1333,16 @@ impl QuickView<'_> {
                 ctx.font(Weight::Semibold),
             ),
         );
-        let caption = self.ctl.headline(self.now);
+        // Pointing at a noise control mode names it here, so the icon-only row reads
+        // without a legend (QA #14).
+        let caption = match q.hover {
+            Some(Hit::Mode(i)) => state
+                .modes
+                .get(i)
+                .map(|m| m.label().to_string())
+                .unwrap_or_else(|| self.ctl.headline(self.now)),
+            _ => self.ctl.headline(self.now),
+        };
         ctx.text(
             f,
             label(
@@ -1328,7 +1355,7 @@ impl QuickView<'_> {
         );
 
         let slots = slots(state);
-        let seg_w = (W - 2.0 * INSET) / slots.len() as f32;
+        let seg_w = segment_step(W - 2.0 * INSET, slots.len());
         for (i, (idx, comp, slot)) in slots.into_iter().enumerate() {
             draw_segment(
                 f,

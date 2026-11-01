@@ -398,14 +398,14 @@ fn full_mode_keeps_the_card_and_bumps_for_news() {
     assert_eq!(c.headline(t1), "Case charging");
     c.tick(t1);
     assert_eq!(c.motion.caption.prev.as_deref(), Some("Connected"));
-    let (_, t2) = run(&mut c, t1, 4000);
-    assert_eq!(c.headline(t2), "Connected");
+    let (_, t2) = run(&mut c, t1, 1000);
     assert!(
         c.is_animating(t2),
         "the light on the charging ring still runs"
     );
-    // ...for three trips round, then the card is still.
-    let (_, t2) = run(&mut c, t2, 2000);
+    let (_, t2) = run(&mut c, t2, 3000);
+    assert_eq!(c.headline(t2), "Connected");
+    // ...for one trip round (within Apple's 2 s), then the card is still.
     assert!(!c.is_animating(t2));
     assert_eq!(c.motion.pulse.value, 1.0);
 }
@@ -1050,4 +1050,32 @@ fn the_case_going_on_a_charger_is_told() {
             ..Default::default()
         }))
     );
+}
+
+#[test]
+fn the_case_card_plays_the_clip_for_its_moment() {
+    let mut inside = buds(80, 75, 40);
+    inside.left = comp(80, true, true);
+    inside.right = comp(75, true, true);
+    inside.in_case = true;
+    let mut off = inside.clone();
+    off.connected = false;
+    let t0 = Instant::now();
+    let mut c = Controller::default();
+    state(&mut c, off.clone(), t0);
+    state(&mut c, inside.clone(), t0);
+    assert_eq!(c.case_clip, Clip::SpinOpen, "first connect of the day spins");
+    let (_, t) = run(&mut c, t0, 7000);
+    state(&mut c, off.clone(), t);
+    state(&mut c, inside.clone(), t);
+    assert_eq!(c.case_clip, Clip::Open, "later the same day it just opens");
+    let (_, t) = run(&mut c, t, 7000);
+    let mut out = inside.clone();
+    out.in_case = false;
+    out.left = comp(80, false, true);
+    out.right = comp(75, false, true);
+    state(&mut c, out, t);
+    let (_, t) = run(&mut c, t, 3000);
+    state(&mut c, inside, t);
+    assert_eq!(c.case_clip, Clip::PutAway);
 }
