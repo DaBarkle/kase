@@ -49,6 +49,11 @@ const RETRY_DELAYS: [u64; 6] = [1, 2, 3, 5, 8, 13];
 const HEALTH_INTERVAL: Duration = Duration::from_secs(2);
 /// When the stem claim is sent a second time after connecting.
 const CLAIM_RESEND_AFTER: Duration = Duration::from_secs(6);
+/// AirPods busy with another device can ignore the whole setup (seen 2026-11-01: no battery,
+/// ear, audio source or stem claim for minutes). Sent again this long after the last try
+/// while they have reported nothing, at most SETUP_RESENDS times.
+const SETUP_RESEND_AFTER: Duration = Duration::from_secs(4);
+const SETUP_RESENDS: u8 = 5;
 /// A session step that takes longer than this is stuck: the control channel is dropped
 /// and opened again, so battery and controls come back without restarting the app.
 const SESSION_STUCK: Duration = Duration::from_secs(20);
@@ -353,8 +358,9 @@ async fn session(
     let mut model_known = false;
     // AirPods 4 ANC ignore the stem claim sent during the handshake (seen 2026-10-28) but
     // take it once the connection has settled, so it is sent again a few seconds in.
-    let connected_at = Instant::now();
+    let mut connected_at = Instant::now();
     let mut claim_resent = false;
+    let mut setup_resends = 0;
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
@@ -365,6 +371,21 @@ async fn session(
                 }
                 if !model_known {
                     model_known = refresh_model(aacp, ctx, &mac_s, name).await;
+                }
+                // Without the setup Kase can't see the other device, and the left hold
+                // changes noise control instead of swapping mics.
+                if setup_resends < SETUP_RESENDS && connected_at.elapsed() >= SETUP_RESEND_AFTER && {
+                    let state = aacp.state.lock().await;
+                    state.battery_info.is_empty() && state.ear_detection_status.is_empty()
+                } {
+                    setup_resends += 1;
+                    info!("{mac_s} ignored the setup; sending it again ({setup_resends}/{SETUP_RESENDS})");
+                    if let Err(e) = handshake(aacp).await {
+                        warn!("Setup resend to {mac_s} failed: {e}");
+                    }
+                    // Claim the stem again once this setup has settled too.
+                    connected_at = Instant::now();
+                    claim_resent = false;
                 }
                 if !claim_resent && connected_at.elapsed() >= CLAIM_RESEND_AFTER {
                     claim_resent = true;
