@@ -631,3 +631,17 @@ fn merged_battery_follows_the_latest_packets_order() {
     let order: Vec<_> = list.iter().map(|b| b.component).collect();
     assert_eq!(order, [Left, Right, Case]);
 }
+
+/// The silent-channel watchdog (devices::airpods::silence) relies on this: a fresh channel
+/// has heard nothing, and any packet, even one Kase can't decode, counts as hearing.
+#[tokio::test]
+async fn any_packet_counts_as_the_airpods_talking() {
+    let (m, _rx) = manager().await;
+    assert!(!m.heard_anything().await);
+    m.receive_packet(&[0xff, 0x01]).await;
+    assert!(m.heard_anything().await);
+
+    let (m, _rx) = manager().await;
+    m.receive_packet(&packet(&[0x04, 0x00])).await;
+    assert!(m.heard_anything().await);
+}
