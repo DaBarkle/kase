@@ -516,6 +516,23 @@ pub fn secondary(theme: &Theme, status: button::Status) -> button::Style {
     }
 }
 
+/// The window's round close button: quiet until hovered.
+pub fn close_button(theme: &Theme, status: button::Status) -> button::Style {
+    let t = Tokens::of(theme);
+    let (bg, ink) = match status {
+        button::Status::Hovered => (t.surface_alt, t.text),
+        button::Status::Pressed => (mix(t.surface_alt, with_alpha(t.text, 0.14)), t.text),
+        _ => (Color::TRANSPARENT, t.text_dim),
+    };
+    button::Style {
+        background: Some(Background::Color(bg)),
+        text_color: ink,
+        border: round(999.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
 /// Filled accent pill ("Use on this PC").
 pub fn primary(theme: &Theme, status: button::Status) -> button::Style {
     let t = Tokens::of(theme);

@@ -7,7 +7,8 @@
 //! - `KASE_UI_SCRIPT` lists timed steps, `ms:action=value` separated by `;`, for example
 //!   `600:scenario=airpods4;3200:tab=island`. Actions: `tab` (AirPods, Island, Settings),
 //!   `scenario` (re-seeds the demo hub, as `--ui-demo=NAME` would), `appearance`
-//!   (system, light, dark), `mode` (off, transparency, adaptive, noise_cancellation).
+//!   (system, light, dark), `mode` (off, transparency, adaptive, noise_cancellation),
+//!   `window` (close: fold into the pill; open: grow out of it again).
 //! - `KASE_TEST_END_MS` is when the recording stops (default 4000).
 
 use std::collections::VecDeque;
@@ -19,6 +20,8 @@ pub enum Step {
     Scenario(String),
     Appearance(String),
     Mode(String),
+    /// `window=close` folds the body into the pill; `window=open` grows it out again.
+    Window(String),
 }
 
 pub struct Recorder {
@@ -87,6 +90,7 @@ fn parse(script: &str) -> Vec<(f64, Step)> {
                 "scenario" => Step::Scenario(value),
                 "appearance" => Step::Appearance(value),
                 "mode" => Step::Mode(value),
+                "window" => Step::Window(value),
                 other => {
                     log::warn!("KASE_UI_SCRIPT: unknown action {other}");
                     return None;
