@@ -6,6 +6,38 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-11-02
+
+### Fixed
+- **Holding the left stem swaps mics again, every time.** Now and then the AirPods open
+  the control channel and never send anything on it. Sound plays, but Kase's claim on the
+  stem hold never reaches them, so the hold changes noise control instead. Sending the
+  setup again on the same channel never helped. Kase now closes a channel that has said
+  nothing for 12 seconds and opens a new one, for as long as the AirPods stay connected.
+  ([#68])
+
+## [1.1.2] - 2026-11-02
+
+### Fixed
+- **The lid closing plays to the end when your AirPods are in your ears.** Shutting the
+  lid with both pods out used to make the 3D case vanish from the card as the lid started
+  to close. The card now keeps it until the lid is shut, then folds. ([#67])
+
+### Documentation
+- The README's demos show the live case: the island opening as the case turns and opens,
+  each pod lifting out as it's taken, and the lid closing; and the 3D case on its own
+  going through a whole open, out, back in and close. "How it works" explains how Kase
+  tells the left pod from the right. ([#67])
+
+## [1.1.1] - 2026-11-02
+
+### Fixed
+- **The live 3D case moves the pod you actually moved.** Kase tells left from right by
+  the order the AirPods list the pods in their battery report, but it read that order
+  from its running battery list, which kept the order of an older report. When the
+  AirPods swapped which pod they list first, the case could put the left pod in when you
+  returned the right one. The list now follows each new report's order. ([#66])
+
 ## [1.1.0] - 2026-11-02
 
 ### Added
@@ -750,6 +782,9 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#56]: https://github.com/DaBarkle/kase/pull/56
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
+[#67]: https://github.com/DaBarkle/kase/pull/67
+[#68]: https://github.com/DaBarkle/kase/pull/68
+[#66]: https://github.com/DaBarkle/kase/pull/66
 [#65]: https://github.com/DaBarkle/kase/pull/65
 [#64]: https://github.com/DaBarkle/kase/pull/64
 [#62]: https://github.com/DaBarkle/kase/pull/62

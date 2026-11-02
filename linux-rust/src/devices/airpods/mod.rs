@@ -127,6 +127,8 @@ pub async fn run(mac: Address, name: String, ctx: DeviceContext, cancel: Cancell
     };
 
     let mut attempt: u32 = 0;
+    // Channels in a row the AirPods never said a word on.
+    let mut silent_in_a_row: u32 = 0;
     loop {
         if cancel.is_cancelled() {
             break;
@@ -154,13 +156,16 @@ pub async fn run(mac: Address, name: String, ctx: DeviceContext, cancel: Cancell
         attempt = 0;
 
         let progress = Progress::default();
-        tokio::select! {
-            _ = session(mac, &name, &aacp, &ctx, &media, audio.as_ref(), &cancel, &progress) => {}
-            step = progress.watch(SESSION_STUCK) => warn!(
-                "Control channel to {} stopped responding (stuck in {} for over {:?}); reconnecting",
-                mac_s, step, SESSION_STUCK
-            ),
-        }
+        let end = tokio::select! {
+            end = session(mac, &name, &aacp, &ctx, &media, audio.as_ref(), &cancel, &progress) => end,
+            step = progress.watch(SESSION_STUCK) => {
+                warn!(
+                    "Control channel to {} stopped responding (stuck in {} for over {:?}); reconnecting",
+                    mac_s, step, SESSION_STUCK
+                );
+                SessionEnd::Dropped
+            }
+        };
 
         aacp.shutdown().await;
         media.lock().await.end_conversation().await;
@@ -170,15 +175,27 @@ pub async fn run(mac: Address, name: String, ctx: DeviceContext, cancel: Cancell
         if cancel.is_cancelled() {
             break;
         }
-        info!(
-            "Control channel to {} dropped while link is up; reconnecting",
-            mac_s
-        );
-        ctx.hub
-            .set_link(&mac_s, LinkState::Reconnecting { attempt: 1 });
+        let delay = if end == SessionEnd::Silent {
+            silent_in_a_row += 1;
+            let delay = silence::reopen_delay(silent_in_a_row);
+            info!(
+                "Opening a new control channel to {} in {:?} (silent channels in a row: {})",
+                mac_s, delay, silent_in_a_row
+            );
+            delay
+        } else {
+            silent_in_a_row = 0;
+            info!(
+                "Control channel to {} dropped while link is up; reconnecting",
+                mac_s
+            );
+            ctx.hub
+                .set_link(&mac_s, LinkState::Reconnecting { attempt: 1 });
+            Duration::from_secs(1)
+        };
         tokio::select! {
             _ = cancel.cancelled() => break,
-            _ = sleep(Duration::from_secs(1)) => {}
+            _ = sleep(delay) => {}
         }
     }
 
@@ -257,7 +274,17 @@ async fn connect_aacp(mac: Address) -> Option<AACPManager> {
     }
 }
 
-/// One control-channel session. Returns when the channel drops or the task is cancelled.
+/// Why a control-channel session ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionEnd {
+    /// The channel dropped, got stuck, or the task was cancelled.
+    Dropped,
+    /// The AirPods never said a word on it: open a fresh one.
+    Silent,
+}
+
+/// One control-channel session. Returns when the channel drops, turns out to be silent, or
+/// the task is cancelled.
 #[allow(clippy::too_many_arguments)]
 async fn session(
     mac: Address,
@@ -268,8 +295,9 @@ async fn session(
     audio: Option<&AudioGuardHandle>,
     cancel: &CancellationToken,
     progress: &Progress,
-) {
+) -> SessionEnd {
     let mac_s = mac.to_string();
+    let opened_at = Instant::now();
     let mut tasks = JoinSet::new();
     progress.busy("handshake");
 
@@ -278,7 +306,7 @@ async fn session(
 
     if let Err(e) = handshake(aacp).await {
         warn!("Handshake with {} failed: {}", mac_s, e);
-        return;
+        return SessionEnd::Dropped;
     }
 
     ctx.device_managers
@@ -361,6 +389,8 @@ async fn session(
     let mut connected_at = Instant::now();
     let mut claim_resent = false;
     let mut setup_resends = 0;
+    let mut silent_resent = false;
+    let mut end = SessionEnd::Dropped;
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
@@ -372,9 +402,33 @@ async fn session(
                 if !model_known {
                     model_known = refresh_model(aacp, ctx, &mac_s, name).await;
                 }
-                // Without the setup Kase can't see the other device, and the left hold
-                // changes noise control instead of swapping mics.
-                if setup_resends < SETUP_RESENDS && connected_at.elapsed() >= SETUP_RESEND_AFTER && {
+                // A channel the AirPods never talk on can't carry the stem claim, so the
+                // left hold would change noise control instead of swapping mics.
+                let heard = aacp.heard_anything().await;
+                match silence::decide(heard, opened_at.elapsed(), silent_resent) {
+                    silence::SilenceStep::Reopen => {
+                        warn!(
+                            "{mac_s} has said nothing on the control channel for {:?}; opening a new one",
+                            silence::REOPEN_AFTER
+                        );
+                        end = SessionEnd::Silent;
+                        break;
+                    }
+                    silence::SilenceStep::ResendSetup => {
+                        silent_resent = true;
+                        info!("{mac_s} has said nothing on the control channel yet; sending the setup again");
+                        if let Err(e) = handshake(aacp).await {
+                            warn!("Setup resend to {mac_s} failed: {e}");
+                        }
+                        connected_at = Instant::now();
+                        claim_resent = false;
+                    }
+                    silence::SilenceStep::Wait => {}
+                }
+                // Talking, but no battery or ear report yet: the AirPods may be busy with
+                // another device. Without the setup Kase can't see the other device, and
+                // the left hold changes noise control instead of swapping mics.
+                if heard && setup_resends < SETUP_RESENDS && connected_at.elapsed() >= SETUP_RESEND_AFTER && {
                     let state = aacp.state.lock().await;
                     state.battery_info.is_empty() && state.ear_detection_status.is_empty()
                 } {
@@ -438,6 +492,7 @@ async fn session(
     tasks.abort_all();
     // Wait for aborted tasks so their channels are really closed before cleanup checks them.
     while tasks.join_next().await.is_some() {}
+    end
 }
 
 /// Whether each AirPods' last ear report had them put away: in the case, none in an ear.
@@ -574,6 +629,7 @@ mod alongside;
 mod arbiter;
 mod controls;
 mod route;
+mod silence;
 
 use controls::*;
 use route::*;

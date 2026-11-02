@@ -45,7 +45,7 @@ SCALE = 2
 @dataclass
 class Clip:
     name: str
-    kind: str  # island | window | anim
+    kind: str  # island | window | anim | live
     script: str = ""  # island: journey file in showcase/
     scenario: str = "airpods4"  # window: starting --ui-demo scenario
     steps: str = ""  # window: KASE_UI_SCRIPT
@@ -73,8 +73,8 @@ CLIPS = [
          note="AirPods connect: case opens, rings fill; noise control; then the tabs"),
     Clip("window-light", "window", scenario="putaway", theme="light", end_ms=14600,
          steps=WINDOW_STEPS, trim_ms=2000, width=560, quality=88),
-    Clip("case-3d", "anim", anim=["airpods4-spin-open", "airpods4-put-away"], width=560,
-         quality=92, note="The 3D clips on their own"),
+    Clip("case-3d", "live", width=560, quality=92,
+         note="The live 3D case on its own: lid, right pod, left pod, back in, lid shut"),
 ]
 
 
@@ -172,6 +172,62 @@ def union_box(paths, pad: int):
 
 
 # --------------------------------------------------------------------------- encoding
+
+
+# The live case card's story, as the pose machine (src/ui/case_pose.rs) plays it: one
+# step at a time, each a list of layers (clip, playing) drawn case first. A playing layer
+# runs its clip; the others hold a frame (0 for a case still, the last for a hover).
+LIVE_STORY = [
+    # First open of the day: the case turns, the lid opens over both pods.
+    [("spin-lid-open", True)],
+    # The right pod comes out and hovers beside the case, then the left.
+    [("case-L", False), ("rise-R", True)],
+    [("case-none", False), ("rise-L", True), ("rise-R", False)],
+    # The right goes back in, then the left.
+    [("case-none", False), ("rise-L", False), ("sink-R", True)],
+    [("case-R", False), ("sink-L", True)],
+    # The lid shuts.
+    [("lid-close-both", True)],
+]
+LIVE_HOLD_MS = 700
+
+
+def live_frames(name: str) -> list[Path]:
+    return sorted((ROOT / "assets" / "anim" / "airpods4-live" / name).glob("f*.webp"))
+
+
+def build_live(clip: Clip) -> None:
+    """The live case card's layers composed into one story, re-timed to 60 fps."""
+    imgs, durs = [], []
+    src_fps = 144.0
+    for step in LIVE_STORY:
+        playing = next(name for name, play in step if play)
+        n = len(live_frames(playing))
+        steps = int(n / src_fps * FPS)
+        times = []
+        for k in range(steps + 1):
+            i = min(round(k / FPS * src_fps), n - 1)
+            frame = Image.new("RGBA", Image.open(live_frames(playing)[0]).size)
+            for name, play in step:
+                files = live_frames(name)
+                # Still pods hover (a rise's last frame); a still case is its only frame.
+                j = i if play else len(files) - 1
+                frame.alpha_composite(Image.open(files[min(j, len(files) - 1)]).convert("RGBA"))
+            imgs.append(scaled(frame, clip.width))
+            times.append(k * 1000 / FPS)
+        durs.extend(frame_durations(times, LIVE_HOLD_MS))
+    box = None
+    for im in imgs:
+        b = im.getchannel("A").point(lambda v: 255 if v > 3 else 0).getbbox()
+        if b:
+            box = b if box is None else (min(box[0], b[0]), min(box[1], b[1]),
+                                         max(box[2], b[2]), max(box[3], b[3]))
+    pad = 12
+    W, H = imgs[0].size
+    box = (max(box[0] - pad, 0), max(box[1] - pad, 0), min(box[2] + pad, W),
+           min(box[3] + pad, H))
+    imgs = [im.crop(box) for im in imgs]
+    encode(imgs, durs, OUT / f"{clip.name}.webp", clip.quality)
 
 
 def encode(images: list[Image.Image], durations: list[int], out: Path, quality: int):
@@ -383,6 +439,9 @@ def main():
         print(c.name, flush=True)
         if c.kind == "anim":
             build_anim(c)
+            continue
+        if c.kind == "live":
+            build_live(c)
             continue
         frames = WORK / c.name / "frames"
         if not a.encode_only:

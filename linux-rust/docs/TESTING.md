@@ -109,6 +109,11 @@ whenever the Freedesktop runtime or WirePlumber is updated:
    EasyEffects' mic) follow.
 3. Hold it again: falling chime, the desk mic is back.
 4. If it fails, look for `access denied` or `libavcodec` in the log.
+5. Open the case with the pods in it, take them out within a few seconds and put them in,
+   then wait 30 seconds and hold the left stem. It must swap mics, not change noise
+   control. If the AirPods opened a silent control channel, the log shows
+   `has said nothing on the control channel` and `Opening a new control channel` before
+   the swap works.
 
 ## 8. Case and reconnect scenarios
 
@@ -122,6 +127,7 @@ What Kase does in each situation, and where. `sup` is `src/supervisor.rs`, `guar
 | Lid opened right after using the iPhone, iPhone grabs them first | The PC's connect may be reset by the AirPods; it keeps knocking every 8 s and connects once the iPhone lets go | Short session counts as bounced (`RunningDevice::bounced`, `quick_retry`, 3 min) |
 | One pod in the case, one in an ear | Stays connected; if it drops, it counts as in use (normal schedule), and the sound goes to the AirPods | `put_away` (in the case and none in an ear) |
 | Case closed after an iPhone hand-back, no ear reports reached the PC | Still counts as into the case, from the AirPods' adverts | `devices::airpods::note_put_away` fed by adverts (`battery_service.rs`) |
+| Control channel opens but the AirPods never send a packet on it (audio fine, no battery, left hold changes noise control) | Setup sent again at 4 s; at 12 s the channel is closed and a new one opened, waiting 1, 2, 5, 10 then 30 s between silent ones, for as long as the link is up | `devices/airpods/silence.rs` `decide` + `reopen_delay`, used by `devices::airpods::session` |
 | Adverts present (Quicker battery updates on, advertisement monitor) | Lid-open knock, case battery while away | `bluetooth/le.rs` `run_monitor` |
 | Adverts absent (switch off: discovery only while away; or none reach the adapter) | Falls back to timed knocks; nothing else changes | `run_discovery`, `quick_retry` (ear reports only) |
 | Screen locked or idle | No 8 s knocks; the normal schedule, plus a knock the moment you come back | `sleep_monitor::user_present`, `Kick::UserActive` |

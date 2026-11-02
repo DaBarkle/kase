@@ -595,3 +595,53 @@ async fn a_dead_send_task_means_not_connected() {
     drop(rx);
     assert!(!m.is_connected().await);
 }
+
+#[test]
+fn merged_battery_follows_the_latest_packets_order() {
+    // The primary pod is listed first; the case state reads left/right from this order,
+    // so the merged list must not keep a stale one (seen 1 Nov 2026 22:34: the right pod
+    // went in and the 3D case put the left one in).
+    let rec = |component, status| BatteryInfo {
+        component,
+        level: 100,
+        status,
+    };
+    use BatteryComponent::{Case, Left, Right};
+    let mut list = Vec::new();
+    merge_battery_info(
+        &mut list,
+        &[
+            rec(Left, BatteryStatus::Charging),
+            rec(Right, BatteryStatus::NotCharging),
+            rec(Case, BatteryStatus::NotCharging),
+        ],
+    );
+    merge_battery_info(
+        &mut list,
+        &[
+            rec(Right, BatteryStatus::NotCharging),
+            rec(Left, BatteryStatus::Charging),
+            rec(Case, BatteryStatus::NotCharging),
+        ],
+    );
+    let order: Vec<_> = list.iter().map(|b| b.component).collect();
+    assert_eq!(order, [Right, Left, Case]);
+    // A packet without some components keeps them, after the ones it names.
+    merge_battery_info(&mut list, &[rec(Left, BatteryStatus::NotCharging)]);
+    let order: Vec<_> = list.iter().map(|b| b.component).collect();
+    assert_eq!(order, [Left, Right, Case]);
+}
+
+/// The silent-channel watchdog (devices::airpods::silence) relies on this: a fresh channel
+/// has heard nothing, and any packet, even one Kase can't decode, counts as hearing.
+#[tokio::test]
+async fn any_packet_counts_as_the_airpods_talking() {
+    let (m, _rx) = manager().await;
+    assert!(!m.heard_anything().await);
+    m.receive_packet(&[0xff, 0x01]).await;
+    assert!(m.heard_anything().await);
+
+    let (m, _rx) = manager().await;
+    m.receive_packet(&packet(&[0x04, 0x00])).await;
+    assert!(m.heard_anything().await);
+}
