@@ -1389,14 +1389,14 @@ impl App {
         // The column hands the page loose limits: the scrollable alone would stretch it to
         // the viewport, and the sensor must see the page's natural height.
         let body = scrollable(column![page])
-        .direction(scrollable::Direction::Vertical(
-            scrollable::Scrollbar::new()
-                .width(5)
-                .scroller_width(5)
-                .margin(3),
-        ))
-        .style(style::scroll)
-        .height(Fill);
+            .direction(scrollable::Direction::Vertical(
+                scrollable::Scrollbar::new()
+                    .width(5)
+                    .scroller_width(5)
+                    .margin(3),
+            ))
+            .style(style::scroll)
+            .height(Fill);
 
         let content = container(column![nav, body]).width(Fill).height(Fill);
         let now = self.clock;

@@ -131,7 +131,11 @@ impl<M> Widget<M, Theme, Renderer> for Morph<'_, M> {
         if rect.width < 1.0 || rect.height < 1.0 {
             return;
         }
-        let radius = self.body.radius.min(rect.height / 2.0).min(rect.width / 2.0);
+        let radius = self
+            .body
+            .radius
+            .min(rect.height / 2.0)
+            .min(rect.width / 2.0);
         let edge = if t.dark {
             Color::from_rgba(1.0, 1.0, 1.0, 0.10)
         } else {
@@ -166,15 +170,9 @@ impl<M> Widget<M, Theme, Renderer> for Morph<'_, M> {
             return;
         }
         renderer.with_layer(clip, |r| {
-            self.content.as_widget().draw(
-                &tree.children[0],
-                r,
-                theme,
-                style,
-                child,
-                cursor,
-                &clip,
-            );
+            self.content
+                .as_widget()
+                .draw(&tree.children[0], r, theme, style, child, cursor, &clip);
         });
         if self.body.cover > 0.001 {
             // Its own layer, drawn after the content's (text draws above quads in a layer).
