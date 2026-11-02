@@ -534,7 +534,11 @@ impl App {
         self.surface_h = self.body_h();
         let settings = window::Settings {
             size: surface_size(self.surface_h),
-            resizable: false,
+            // Left resizable on purpose: on Wayland, winit makes a non-resizable window by
+            // pinning its minimum and maximum size to the first size, and never moves them
+            // when Kase resizes it. KWin then holds the window at that size and crops the
+            // body (seen on KDE Plasma 6). There are no edges to drag anyway.
+            resizable: true,
             // No titlebar: the body is the window, drawn on a transparent surface.
             decorations: false,
             transparent: true,
