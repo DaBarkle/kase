@@ -45,6 +45,10 @@ const BODY_MAX_H: f32 = 720.0;
 const PILL: Size = Size::new(150.0, 40.0);
 /// The body's corner radius at rest.
 const BODY_RADIUS: f32 = 30.0;
+/// Space between a scrolling page and the body's bottom edge, clear of the round corners.
+const BOTTOM_INSET: f32 = 16.0;
+/// The page fades out over this much above that.
+const BOTTOM_FADE: f32 = 22.0;
 /// Extra surface below a growing body for the grow spring's overshoot.
 const OVERSHOOT_ROOM: f32 = 40.0;
 /// Opening and growing: the island's grow spring. Closing: its shrink spring.
@@ -405,7 +409,7 @@ fn surface_size(h: f32) -> Size {
 /// The body's height at rest: the tab bar plus the page, within the limits.
 fn body_height(nav: f32, page: Option<f32>, max: f32) -> f32 {
     let max = max.max(BODY_MIN_H);
-    (nav + page.unwrap_or(max)).clamp(BODY_MIN_H, max)
+    (nav + page.map_or(max, |p| p + BOTTOM_INSET)).clamp(BODY_MIN_H, max)
 }
 
 fn load_window_icon() -> Option<window::Icon> {
@@ -1487,6 +1491,25 @@ impl App {
             .style(style::scroll)
             .height(Fill);
 
+        // A scrolling page stops short of the body's round bottom corners and fades out
+        // above them, instead of running square into the corners and over the edge.
+        let fade = container(Space::new())
+            .width(Fill)
+            .height(Length::Fixed(BOTTOM_FADE))
+            .style(style::bottom_fade);
+        let body = column![
+            stack![
+                body,
+                // Inset so its square ends stay inside the round corners.
+                container(fade).align_bottom(Fill).padding(Padding {
+                    left: 10.0,
+                    right: 10.0,
+                    ..Padding::ZERO
+                }),
+            ],
+            Space::new().height(Length::Fixed(BOTTOM_INSET)),
+        ]
+        .height(Fill);
         let content = container(column![nav, body]).width(Fill).height(Fill);
         let now = self.clock;
         let inner = Size::new(BODY_W, self.body_h());
@@ -1605,7 +1628,10 @@ mod body_tests {
 
     #[test]
     fn body_follows_the_page_within_limits() {
-        assert_eq!(body_height(60.0, Some(500.0), BODY_MAX_H), 560.0);
+        assert_eq!(
+            body_height(60.0, Some(500.0), BODY_MAX_H),
+            560.0 + BOTTOM_INSET
+        );
         assert_eq!(body_height(60.0, Some(100.0), BODY_MAX_H), BODY_MIN_H);
         assert_eq!(body_height(60.0, Some(1500.0), BODY_MAX_H), BODY_MAX_H);
     }

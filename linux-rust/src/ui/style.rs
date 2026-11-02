@@ -436,6 +436,19 @@ pub fn icon_disc(theme: &Theme) -> container::Style {
     }
 }
 
+/// The bottom of a scrolling page fading into the window's body.
+pub fn bottom_fade(theme: &Theme) -> container::Style {
+    let t = Tokens::of(theme);
+    container::Style {
+        background: Some(Background::Gradient(iced::Gradient::Linear(
+            iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
+                .add_stop(0.0, Color { a: 0.0, ..t.bg })
+                .add_stop(1.0, t.bg),
+        ))),
+        ..Default::default()
+    }
+}
+
 /// The little screen on the Island tab.
 pub fn screen(theme: &Theme) -> container::Style {
     let t = Tokens::of(theme);
