@@ -436,6 +436,19 @@ pub fn icon_disc(theme: &Theme) -> container::Style {
     }
 }
 
+/// The bottom of a scrolling page fading into the window's body.
+pub fn bottom_fade(theme: &Theme) -> container::Style {
+    let t = Tokens::of(theme);
+    container::Style {
+        background: Some(Background::Gradient(iced::Gradient::Linear(
+            iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
+                .add_stop(0.0, Color { a: 0.0, ..t.bg })
+                .add_stop(1.0, t.bg),
+        ))),
+        ..Default::default()
+    }
+}
+
 /// The little screen on the Island tab.
 pub fn screen(theme: &Theme) -> container::Style {
     let t = Tokens::of(theme);
@@ -510,6 +523,23 @@ pub fn secondary(theme: &Theme, status: button::Status) -> button::Style {
         } else {
             t.text
         },
+        border: round(999.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+/// The window's round close button: quiet until hovered.
+pub fn close_button(theme: &Theme, status: button::Status) -> button::Style {
+    let t = Tokens::of(theme);
+    let (bg, ink) = match status {
+        button::Status::Hovered => (t.surface_alt, t.text),
+        button::Status::Pressed => (mix(t.surface_alt, with_alpha(t.text, 0.14)), t.text),
+        _ => (Color::TRANSPARENT, t.text_dim),
+    };
+    button::Style {
+        background: Some(Background::Color(bg)),
+        text_color: ink,
         border: round(999.0),
         shadow: Shadow::default(),
         snap: true,

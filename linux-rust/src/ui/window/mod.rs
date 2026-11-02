@@ -35,8 +35,25 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{Mutex, RwLock};
 
-/// Tall enough for every AirPods page without scrolling (docs/DESIGN.md).
-const WINDOW_SIZE: Size = Size::new(420.0, 700.0);
+/// The body's width; its height follows the page (docs/DESIGN.md).
+const BODY_W: f32 = 420.0;
+/// The body never gets shorter or taller than this; longer pages scroll.
+const BODY_MIN_H: f32 = 380.0;
+const BODY_MAX_H: f32 = 720.0;
+/// The pill the body grows out of on open and folds back into on close (the island's
+/// compact size).
+const PILL: Size = Size::new(150.0, 40.0);
+/// The body's corner radius at rest.
+const BODY_RADIUS: f32 = 30.0;
+/// Space between a scrolling page and the body's bottom edge, clear of the round corners.
+const BOTTOM_INSET: f32 = 16.0;
+/// The page fades out over this much above that.
+const BOTTOM_FADE: f32 = 22.0;
+/// Extra surface below a growing body for the grow spring's overshoot.
+const OVERSHOOT_ROOM: f32 = 40.0;
+/// Opening and growing: the island's grow spring. Closing: its shrink spring.
+const GROW: motion::Curve = motion::Curve::from(crate::ui::tokens::GROW);
+const SHRINK: motion::Curve = motion::Curve::from(crate::ui::tokens::SHRINK);
 /// How long an optimistic control change is shown before we fall back to the device's state.
 const PENDING_FOR: Duration = Duration::from_secs(4);
 /// The supervisor needs a moment to find the adapter; don't flash "unavailable" at startup.
@@ -84,6 +101,11 @@ pub fn start_ui(ctx: UiContext) -> iced::Result {
     )
     .subscription(App::subscription)
     .theme(App::theme)
+    // The window is transparent: the body draws its own rounded shape and shadow.
+    .style(|_: &App, theme: &Theme| iced::theme::Style {
+        background_color: Color::TRANSPARENT,
+        text_color: Tokens::of(theme).text,
+    })
     .title(|_: &App, _| "Kase".to_string())
     .settings(iced::Settings {
         id: Some(crate::autostart::APP_ID.to_string()),
@@ -155,6 +177,19 @@ pub enum Message {
     RecShot(window::Screenshot),
     WindowOpened(window::Id),
     WindowClosed(window::Id),
+    /// The compositor or the user (Alt+F4, the taskbar) asked the window to close.
+    CloseRequested(window::Id),
+    /// The close button or Esc: fold into the pill, then close.
+    CloseWindow,
+    /// The fold has finished.
+    CloseNow,
+    /// Pressed on the tab bar's empty space: move the window.
+    DragWindow,
+    /// Natural heights of the tab bar and of a page, for the body's height.
+    NavHeight(f32),
+    /// The screen's size, to keep the body shorter than a small screen.
+    MonitorSize(Option<Size>),
+    PageHeight(Tab, f32),
     SystemTheme(iced::theme::Mode),
     Tick,
     SetMode(ListeningMode),
@@ -267,6 +302,11 @@ enum Anim {
     PillFade,
     /// Page entrance after a tab switch: 1 = just switched, 0 = settled.
     Page,
+    /// The body's drawn width and height.
+    BodyW,
+    BodyH,
+    /// 1 = content hidden under the body's colour (opening, closing), 0 = shown.
+    BodyCover,
 }
 
 /// The page slides in from this far, in the direction of the new tab.
@@ -346,6 +386,30 @@ pub struct App {
     saved: HashMap<String, DeviceData>,
     /// Demo on the test clock only: records every frame (`record`).
     rec: Option<record::Recorder>,
+    /// Measured heights for the body: the tab bar, and each page as last laid out.
+    nav_h: f32,
+    page_h: HashMap<Tab, f32>,
+    /// Folding into the pill before the window closes.
+    closing: bool,
+    /// The tallest the body may be: BODY_MAX_H, less on a short screen.
+    body_max: f32,
+    /// The height of the body area the window surface is sized for (the surface adds
+    /// the shadow margin round it).
+    surface_h: f32,
+    /// The body's resting height last targeted, to pick the grow or shrink spring.
+    body_target: f32,
+}
+
+/// The window surface for a body area `h` tall: the body plus its shadow margin.
+fn surface_size(h: f32) -> Size {
+    let m = crate::ui::shell::MARGIN;
+    Size::new(BODY_W + 2.0 * m, h + 2.0 * m)
+}
+
+/// The body's height at rest: the tab bar plus the page, within the limits.
+fn body_height(nav: f32, page: Option<f32>, max: f32) -> f32 {
+    let max = max.max(BODY_MIN_H);
+    (nav + page.map_or(max, |p| p + BOTTOM_INSET)).clamp(BODY_MIN_H, max)
 }
 
 fn load_window_icon() -> Option<window::Icon> {
@@ -422,6 +486,17 @@ impl App {
             } else {
                 None
             },
+            nav_h: 60.0,
+            page_h: HashMap::new(),
+            closing: false,
+            // Demo/screenshots only: a taller or shorter body.
+            body_max: std::env::var("KASE_UI_HEIGHT")
+                .ok()
+                .filter(|_| demo)
+                .and_then(|h| h.parse::<f32>().ok())
+                .unwrap_or(BODY_MAX_H),
+            surface_h: 0.0,
+            body_target: 0.0,
         };
         let theme = iced::system::theme().map(Message::SystemTheme);
         let open = if start_minimized {
@@ -457,16 +532,22 @@ impl App {
         if let Some(id) = self.window {
             return window::gain_focus(id);
         }
-        // Demo/screenshots only: taller window to capture everything.
-        let height = std::env::var("KASE_UI_HEIGHT")
-            .ok()
-            .filter(|_| self.demo)
-            .and_then(|h| h.parse::<f32>().ok())
-            .unwrap_or(WINDOW_SIZE.height);
+        self.closing = false;
+        // Sized for the body as it was last seen (or the tallest body on first open); it is
+        // fitted to the body once the grow settles.
+        self.surface_h = self.body_h();
         let settings = window::Settings {
-            size: Size::new(WINDOW_SIZE.width, height),
-            min_size: Some(Size::new(380.0, 520.0)),
-            max_size: Some(Size::new(560.0, 1000.0)),
+            size: surface_size(self.surface_h),
+            // Left resizable on purpose: on Wayland, winit makes a non-resizable window by
+            // pinning its minimum and maximum size to the first size, and never moves them
+            // when Kase resizes it. KWin then holds the window at that size and crops the
+            // body (seen on KDE Plasma 6). There are no edges to drag anyway.
+            resizable: true,
+            // No titlebar: the body is the window, drawn on a transparent surface.
+            decorations: false,
+            transparent: true,
+            // Closing folds the body into the pill first (Message::CloseRequested).
+            exit_on_close_request: false,
             icon: self.window_icon.clone(),
             platform_specific: window::settings::PlatformSpecific {
                 application_id: crate::autostart::APP_ID.to_string(),
@@ -587,6 +668,17 @@ impl App {
                         tasks.push(self.handle(Message::SetMode(mode)));
                     }
                 }
+                record::Step::Window(name) => match name.to_ascii_lowercase().as_str() {
+                    "close" => tasks.push(self.handle(Message::CloseWindow)),
+                    "open" => {
+                        self.closing = false;
+                        self.body_target = 0.0;
+                        self.motion.forget(Anim::BodyW);
+                        self.motion.forget(Anim::BodyH);
+                        self.motion.forget(Anim::BodyCover);
+                    }
+                    _ => {}
+                },
                 record::Step::Appearance(name) => {
                     self.settings.appearance = match name.to_ascii_lowercase().as_str() {
                         "light" => Appearance::Light,
@@ -641,7 +733,47 @@ impl App {
         };
         let task = self.handle(message);
         self.sync_motion();
-        task
+        Task::batch([task, self.fit_surface()])
+    }
+
+    /// The body's resting height for the current tab.
+    fn body_h(&self) -> f32 {
+        body_height(
+            self.nav_h,
+            self.page_h.get(&self.tab).copied(),
+            self.body_max,
+        )
+    }
+
+    /// Keeps the window surface just big enough for the body. It grows at once when the
+    /// body is about to grow, and shrinks only once the body has settled, so the surface
+    /// never changes size mid-animation (resizing a GPU surface every frame stutters) and
+    /// nothing invisible is left catching clicks under a short body. KWin keeps the
+    /// window's top-left corner where it is, so the body stays put.
+    fn fit_surface(&mut self) -> Task<Message> {
+        let Some(id) = self.window else {
+            return Task::none();
+        };
+        if self.closing || self.rec.is_some() {
+            return Task::none();
+        }
+        let target = self.body_h();
+        let moving = self.motion.moving(Anim::BodyH, self.clock)
+            || self.motion.moving(Anim::BodyW, self.clock);
+        // While it moves, room for the grow spring's overshoot too.
+        let want = if moving {
+            self.surface_h.max(target + OVERSHOOT_ROOM)
+        } else {
+            target
+        };
+        if (want - self.surface_h).abs() < 1.0 {
+            return Task::none();
+        }
+        if !moving || want > self.surface_h {
+            self.surface_h = want;
+            return window::resize(id, surface_size(want));
+        }
+        Task::none()
     }
 
     /// Point every spring at what the state says now; pulse the status glow on a change.
@@ -666,6 +798,31 @@ impl App {
         m.reduced = reduced;
         let tab = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0);
         m.target(Anim::Tab, tab as f32, None, motion::SNAPPY, now);
+        // The body grows out of the pill when the window opens, then follows the page.
+        if self.window.is_some() && !self.closing {
+            let h = body_height(
+                self.nav_h,
+                self.page_h.get(&self.tab).copied(),
+                self.body_max,
+            );
+            // Taller: the island's grow spring. Shorter: its shrink spring.
+            let curve = if h < self.body_target - 0.5 {
+                SHRINK
+            } else {
+                GROW
+            };
+            self.body_target = h;
+            m.target(Anim::BodyW, BODY_W, Some(PILL.width), GROW, now);
+            m.target_with(Anim::BodyH, h, Some(PILL.height), curve, now);
+            m.target_after(
+                Anim::BodyCover,
+                0.0,
+                Some(1.0),
+                motion::FADE,
+                now,
+                Duration::from_millis(240),
+            );
+        }
         let s = &self.settings;
         let style = OVERLAY_STYLES
             .iter()
@@ -819,6 +976,7 @@ impl App {
             }
             Key::Named(Named::PageDown) if mods.control() => 1,
             Key::Named(Named::PageUp) if mods.control() => -1,
+            Key::Named(Named::Escape) => return self.handle(Message::CloseWindow),
             _ => return Task::none(),
         };
         let at = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0) as i32;
@@ -884,11 +1042,13 @@ impl App {
             Message::Legacy(msg) => self.on_legacy(msg),
             Message::WindowOpened(id) => {
                 self.window = Some(id);
-                // Let the rings and glow play in again.
+                // Let the rings and glow play in again, and the body grow out of the pill.
                 self.motion.reset();
+                self.body_target = 0.0;
+                let screen = window::monitor_size(id).map(Message::MonitorSize);
                 self.last_status = None;
                 self.last_charging.clear();
-                if self.rec.is_some() {
+                let next = if self.rec.is_some() {
                     // Give the compositor a moment to map the window before frame zero.
                     Task::perform(tokio::time::sleep(Duration::from_millis(800)), |_| {
                         Message::RecFrame
@@ -897,7 +1057,8 @@ impl App {
                     Task::none()
                 } else {
                     Task::perform(motion::probe_system(), Message::SystemMotion)
-                }
+                };
+                Task::batch([screen, next])
             }
             Message::Frame(_) => Task::none(),
             Message::RecFrame => self.rec_frame(),
@@ -906,6 +1067,65 @@ impl App {
                 _ => Task::none(),
             },
             Message::RecShot(shot) => self.rec_saved(shot),
+            Message::CloseRequested(id) if self.window == Some(id) => {
+                self.handle(Message::CloseWindow)
+            }
+            Message::CloseRequested(id) => window::close(id),
+            Message::CloseWindow => {
+                let Some(id) = self.window else {
+                    return Task::none();
+                };
+                if self.closing {
+                    return Task::none();
+                }
+                self.closing = true;
+                if self.motion.reduced {
+                    return window::close(id);
+                }
+                // Fold from wherever the body is now, on the island's shrink spring.
+                let now = self.clock;
+                for (key, to) in [(Anim::BodyW, PILL.width), (Anim::BodyH, PILL.height)] {
+                    let from = self.anim(key, to);
+                    self.motion.forget(key);
+                    self.motion.target(key, to, Some(from), SHRINK, now);
+                }
+                let cover = self.anim(Anim::BodyCover, 0.0);
+                self.motion.forget(Anim::BodyCover);
+                self.motion
+                    .target(Anim::BodyCover, 1.0, Some(cover), motion::FADE, now);
+                if self.rec.is_some() {
+                    // Recording: keep the window to film the fold.
+                    return Task::none();
+                }
+                Task::perform(
+                    tokio::time::sleep(Duration::from_secs_f32(crate::ui::tokens::SHRINK.duration)),
+                    |_| Message::CloseNow,
+                )
+            }
+            Message::CloseNow => match self.window {
+                Some(id) if self.closing => window::close(id),
+                _ => Task::none(),
+            },
+            Message::DragWindow => match self.window {
+                Some(id) if !self.closing => window::drag(id),
+                _ => Task::none(),
+            },
+            Message::MonitorSize(Some(screen)) => {
+                // Leave room for a panel and the shadow.
+                let fit = screen.height - 2.0 * crate::ui::shell::MARGIN - 64.0;
+                self.body_max = self.body_max.min(fit.max(BODY_MIN_H));
+                Task::none()
+            }
+            Message::MonitorSize(None) => Task::none(),
+            Message::NavHeight(h) => {
+                self.nav_h = h;
+                Task::none()
+            }
+            Message::PageHeight(tab, h) => {
+                debug!("page height {tab:?} = {h}, nav = {}", self.nav_h);
+                self.page_h.insert(tab, h);
+                Task::none()
+            }
             Message::WindowClosed(id) => {
                 // Closing the window keeps Kase running in the tray.
                 if self.window == Some(id) {
@@ -1168,6 +1388,7 @@ impl App {
             Subscription::run_with(HubKey(self.hub.clone()), hub_stream).map(Message::Hub),
             Subscription::run_with(self.ui_rx.clone(), legacy_stream).map(Message::Legacy),
             window::close_events().map(Message::WindowClosed),
+            window::close_requests().map(Message::CloseRequested),
             iced::system::theme_changes().map(Message::SystemTheme),
             iced::time::every(Duration::from_secs(20)).map(|_| Message::Tick),
             iced::keyboard::listen().filter_map(|e| match e {
@@ -1211,12 +1432,32 @@ impl App {
     // ---------------------------------------------------------------- view
 
     fn view(&self, _id: window::Id) -> Element<'_, Message> {
-        let nav = container(self.tabs()).center_x(Fill).padding(Padding {
-            top: 14.0,
-            bottom: 6.0,
-            left: 20.0,
-            right: 20.0,
+        let close = container(
+            button(text("\u{00D7}").size(18).line_height(1.0).center())
+                .width(Length::Fixed(28.0))
+                .height(Length::Fixed(28.0))
+                .padding(0)
+                .style(style::close_button)
+                .on_press(Message::CloseWindow),
+        )
+        .align_right(Fill)
+        .center_y(Length::Fixed(36.0))
+        .padding(Padding {
+            right: 14.0,
+            ..Padding::ZERO
         });
+        let tabs = container(self.tabs()).center_x(Fill);
+        // The tab bar's empty space is the handle for moving the window.
+        let nav = iced::widget::sensor(
+            iced::widget::mouse_area(container(stack![tabs, close]).padding(Padding {
+                top: 14.0,
+                bottom: 6.0,
+                left: 20.0,
+                right: 0.0,
+            }))
+            .on_press(Message::DragWindow),
+        )
+        .on_resize(|s| Message::NavHeight(s.height));
         let page = match self.tab {
             Tab::AirPods => self.airpods_tab(),
             Tab::Island => self.island_tab(),
@@ -1230,26 +1471,60 @@ impl App {
             iced::Vector::new(self.page_dir * slide * entering, 0.0),
             entering,
         );
-        let body = scrollable(container(page).padding(Padding {
+        let tab = self.tab;
+        let page = iced::widget::sensor(container(page).padding(Padding {
             top: 12.0,
             bottom: 24.0,
             left: 20.0,
             right: 20.0,
         }))
-        .direction(scrollable::Direction::Vertical(
-            scrollable::Scrollbar::new()
-                .width(5)
-                .scroller_width(5)
-                .margin(3),
-        ))
-        .style(style::scroll)
-        .height(Fill);
+        .on_resize(move |s| Message::PageHeight(tab, s.height));
+        // The column hands the page loose limits: the scrollable alone would stretch it to
+        // the viewport, and the sensor must see the page's natural height.
+        let body = scrollable(column![page])
+            .direction(scrollable::Direction::Vertical(
+                scrollable::Scrollbar::new()
+                    .width(5)
+                    .scroller_width(5)
+                    .margin(3),
+            ))
+            .style(style::scroll)
+            .height(Fill);
 
-        container(column![nav, body])
+        // A scrolling page stops short of the body's round bottom corners and fades out
+        // above them, instead of running square into the corners and over the edge.
+        let fade = container(Space::new())
             .width(Fill)
-            .height(Fill)
-            .style(style::page)
-            .into()
+            .height(Length::Fixed(BOTTOM_FADE))
+            .style(style::bottom_fade);
+        let body = column![
+            stack![
+                body,
+                // Inset so its square ends stay inside the round corners.
+                container(fade).align_bottom(Fill).padding(Padding {
+                    left: 10.0,
+                    right: 10.0,
+                    ..Padding::ZERO
+                }),
+            ],
+            Space::new().height(Length::Fixed(BOTTOM_INSET)),
+        ]
+        .height(Fill);
+        let content = container(column![nav, body]).width(Fill).height(Fill);
+        let now = self.clock;
+        let inner = Size::new(BODY_W, self.body_h());
+        let w = self.motion.value(Anim::BodyW, inner.width, now);
+        let h = self.motion.value(Anim::BodyH, inner.height, now);
+        crate::ui::shell::morph(
+            content,
+            crate::ui::shell::Body {
+                inner,
+                shown: Size::new(w.max(0.0), h.max(0.0)),
+                radius: BODY_RADIUS,
+                cover: self.motion.value(Anim::BodyCover, 0.0, now).clamp(0.0, 1.0),
+                lift: ((w - PILL.width) / (BODY_W - PILL.width)).clamp(0.0, 1.0),
+            },
+        )
     }
 
     fn anim(&self, key: Anim, fallback: f32) -> f32 {
@@ -1343,3 +1618,47 @@ mod record;
 
 use controls::*;
 use page_airpods::{has_art, pill_width};
+
+// The pill must be smaller than the body it grows into.
+const _: () = assert!(PILL.width < BODY_W && PILL.height < BODY_MIN_H);
+
+#[cfg(test)]
+mod body_tests {
+    use super::*;
+
+    #[test]
+    fn body_follows_the_page_within_limits() {
+        assert_eq!(
+            body_height(60.0, Some(500.0), BODY_MAX_H),
+            560.0 + BOTTOM_INSET
+        );
+        assert_eq!(body_height(60.0, Some(100.0), BODY_MAX_H), BODY_MIN_H);
+        assert_eq!(body_height(60.0, Some(1500.0), BODY_MAX_H), BODY_MAX_H);
+    }
+
+    #[test]
+    fn unmeasured_page_gets_the_tallest_body() {
+        assert_eq!(body_height(60.0, None, BODY_MAX_H), BODY_MAX_H);
+    }
+
+    #[test]
+    fn short_screen_caps_the_body_but_never_below_the_minimum() {
+        assert_eq!(body_height(60.0, Some(1500.0), 600.0), 600.0);
+        assert_eq!(body_height(60.0, Some(1500.0), 200.0), BODY_MIN_H);
+    }
+
+    #[test]
+    fn surface_adds_the_shadow_margin() {
+        let m = crate::ui::shell::MARGIN;
+        assert_eq!(
+            surface_size(500.0),
+            Size::new(BODY_W + 2.0 * m, 500.0 + 2.0 * m)
+        );
+    }
+
+    #[test]
+    fn body_springs_follow_apples_limits() {
+        assert_eq!(GROW, motion::Curve::from(crate::ui::tokens::GROW));
+        assert_eq!(SHRINK, motion::Curve::from(crate::ui::tokens::SHRINK));
+    }
+}

@@ -24,7 +24,7 @@ and AirPods that switch between your iPhone and your PC the way they do with a M
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="linux-rust/docs/media/window-light.webp">
-  <img src="linux-rust/docs/media/window-dark.webp" width="360" alt="The Kase window as the AirPods connect: the closed case opens with the pods rising out, the status pill turns green and the rings fill one after another while the numbers count up. Noise control moves to Transparency, then Adaptive; the Island and Settings tabs slide in, and it returns to AirPods">
+  <img src="linux-rust/docs/media/window-dark.webp" width="360" alt="The Kase window grows out of a small black pill into a rounded window with no titlebar. The AirPods connect: the closed case opens with the pods rising out, the status pill turns green and the rings fill one after another while the numbers count up. Noise control moves to Transparency, then Adaptive. The window grows taller for the Island and Settings tabs, shrinks back for AirPods, then folds back into the pill">
 </picture>
 
 <sub>Every frame above is the real app, recorded frame by frame at 60 fps (see <a href="#recording-the-demos">Recording the demos</a>).</sub>
@@ -220,6 +220,12 @@ Bluetooth settings, `bluetoothctl`, or the AirPods connecting by themselves) and
 after them as before. Unpairing them also clears it.
 
 ### The app window
+
+The window works like the island. It has no titlebar: when you open Kase, a small black
+pill appears and grows into the window, and closing it (the **×** in the corner, **Esc**,
+Alt+F4 or the taskbar) folds it back into the pill. Its height follows what's on the tab,
+so it grows for **Island** and **Settings** and shrinks back for **AirPods**. Drag the empty
+space around the tabs to move it.
 
 The window has three tabs. **AirPods** shows a status island that glows green when the
 AirPods are connected and amber or red when a pod runs low, the battery rings, and on models
