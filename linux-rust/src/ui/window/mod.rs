@@ -1592,6 +1592,9 @@ mod record;
 use controls::*;
 use page_airpods::{has_art, pill_width};
 
+// The pill must be smaller than the body it grows into.
+const _: () = assert!(PILL.width < BODY_W && PILL.height < BODY_MIN_H);
+
 #[cfg(test)]
 mod body_tests {
     use super::*;
@@ -1625,7 +1628,6 @@ mod body_tests {
 
     #[test]
     fn body_springs_follow_apples_limits() {
-        assert!(PILL.width < BODY_W && PILL.height < BODY_MIN_H);
         assert_eq!(GROW, motion::Curve::from(crate::ui::tokens::GROW));
         assert_eq!(SHRINK, motion::Curve::from(crate::ui::tokens::SHRINK));
     }
