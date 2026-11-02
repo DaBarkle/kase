@@ -6,6 +6,16 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-11-02
+
+### Fixed
+- **Holding the left stem swaps mics again, every time.** Now and then the AirPods open
+  the control channel and never send anything on it. Sound plays, but Kase's claim on the
+  stem hold never reaches them, so the hold changes noise control instead. Sending the
+  setup again on the same channel never helped. Kase now closes a channel that has said
+  nothing for 12 seconds and opens a new one, for as long as the AirPods stay connected.
+  ([#68])
+
 ## [1.1.2] - 2026-11-02
 
 ### Fixed
@@ -773,6 +783,7 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
 [#67]: https://github.com/DaBarkle/kase/pull/67
+[#68]: https://github.com/DaBarkle/kase/pull/68
 [#66]: https://github.com/DaBarkle/kase/pull/66
 [#65]: https://github.com/DaBarkle/kase/pull/65
 [#64]: https://github.com/DaBarkle/kase/pull/64

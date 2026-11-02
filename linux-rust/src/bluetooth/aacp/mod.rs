@@ -342,6 +342,9 @@ pub struct AACPManagerState {
     mic_tx: Option<mpsc::Sender<Vec<u8>>>,
     pub devices: HashMap<String, DeviceData>,
     pub airpods_mac: Option<Address>,
+    /// Packets the AirPods have sent on this channel. Zero long after it opened means a
+    /// dead channel (see devices::airpods::silence).
+    pub packets_received: u64,
 }
 
 impl AACPManagerState {
@@ -365,6 +368,7 @@ impl AACPManagerState {
             mic_tx: None,
             devices,
             airpods_mac: None,
+            packets_received: 0,
         }
     }
 
@@ -589,6 +593,11 @@ async fn send_thread(mut rx: mpsc::Receiver<Vec<u8>>, sp: Arc<SeqPacket>) {
 
 // Lifecycle helpers used by the device supervisor.
 impl AACPManager {
+    /// Whether the AirPods have sent anything at all on this channel.
+    pub async fn heard_anything(&self) -> bool {
+        self.state.lock().await.packets_received > 0
+    }
+
     /// True while the L2CAP control channel is up.
     pub async fn is_connected(&self) -> bool {
         // The send task ends on a hard send error while the receive task keeps running, so

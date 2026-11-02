@@ -4,6 +4,11 @@ use super::*;
 
 impl AACPManager {
     pub async fn receive_packet(&self, packet: &[u8]) {
+        // Anything at all, even a packet Kase can't read, means the channel is alive.
+        {
+            let mut state = self.state.lock().await;
+            state.packets_received = state.packets_received.saturating_add(1);
+        }
         if !packet.starts_with(&HEADER_BYTES) {
             debug!(
                 "Received packet does not start with expected header: {}",
