@@ -45,6 +45,8 @@ const BODY_MAX_H: f32 = 720.0;
 const PILL: Size = Size::new(150.0, 40.0);
 /// The body's corner radius at rest.
 const BODY_RADIUS: f32 = 30.0;
+/// Extra surface below a growing body for the grow spring's overshoot.
+const OVERSHOOT_ROOM: f32 = 40.0;
 /// Opening and growing: the island's grow spring. Closing: its shrink spring.
 const GROW: motion::Curve = motion::Curve::from(crate::ui::tokens::GROW);
 const SHRINK: motion::Curve = motion::Curve::from(crate::ui::tokens::SHRINK);
@@ -181,6 +183,8 @@ pub enum Message {
     DragWindow,
     /// Natural heights of the tab bar and of a page, for the body's height.
     NavHeight(f32),
+    /// The screen's size, to keep the body shorter than a small screen.
+    MonitorSize(Option<Size>),
     PageHeight(Tab, f32),
     SystemTheme(iced::theme::Mode),
     Tick,
@@ -383,11 +387,25 @@ pub struct App {
     page_h: HashMap<Tab, f32>,
     /// Folding into the pill before the window closes.
     closing: bool,
+    /// The tallest the body may be: BODY_MAX_H, less on a short screen.
+    body_max: f32,
+    /// The height of the body area the window surface is sized for (the surface adds
+    /// the shadow margin round it).
+    surface_h: f32,
+    /// The body's resting height last targeted, to pick the grow or shrink spring.
+    body_target: f32,
+}
+
+/// The window surface for a body area `h` tall: the body plus its shadow margin.
+fn surface_size(h: f32) -> Size {
+    let m = crate::ui::shell::MARGIN;
+    Size::new(BODY_W + 2.0 * m, h + 2.0 * m)
 }
 
 /// The body's height at rest: the tab bar plus the page, within the limits.
-fn body_height(nav: f32, page: Option<f32>) -> f32 {
-    (nav + page.unwrap_or(BODY_MAX_H)).clamp(BODY_MIN_H, BODY_MAX_H)
+fn body_height(nav: f32, page: Option<f32>, max: f32) -> f32 {
+    let max = max.max(BODY_MIN_H);
+    (nav + page.unwrap_or(max)).clamp(BODY_MIN_H, max)
 }
 
 fn load_window_icon() -> Option<window::Icon> {
@@ -467,6 +485,14 @@ impl App {
             nav_h: 60.0,
             page_h: HashMap::new(),
             closing: false,
+            // Demo/screenshots only: a taller or shorter body.
+            body_max: std::env::var("KASE_UI_HEIGHT")
+                .ok()
+                .filter(|_| demo)
+                .and_then(|h| h.parse::<f32>().ok())
+                .unwrap_or(BODY_MAX_H),
+            surface_h: 0.0,
+            body_target: 0.0,
         };
         let theme = iced::system::theme().map(Message::SystemTheme);
         let open = if start_minimized {
@@ -502,20 +528,17 @@ impl App {
         if let Some(id) = self.window {
             return window::gain_focus(id);
         }
-        // Demo/screenshots only: taller window to capture everything.
-        let height = std::env::var("KASE_UI_HEIGHT")
-            .ok()
-            .filter(|_| self.demo)
-            .and_then(|h| h.parse::<f32>().ok())
-            .unwrap_or(BODY_MAX_H);
         self.closing = false;
-        let m = crate::ui::shell::MARGIN;
+        // Sized for the body as it was last seen (or the tallest body on first open); it is
+        // fitted to the body once the grow settles.
+        self.surface_h = self.body_h();
         let settings = window::Settings {
-            // Room for the tallest body and its shadow. No titlebar: the body is the window.
-            size: Size::new(BODY_W + 2.0 * m, height + 2.0 * m),
+            size: surface_size(self.surface_h),
             resizable: false,
+            // No titlebar: the body is the window, drawn on a transparent surface.
             decorations: false,
             transparent: true,
+            // Closing folds the body into the pill first (Message::CloseRequested).
             exit_on_close_request: false,
             icon: self.window_icon.clone(),
             platform_specific: window::settings::PlatformSpecific {
@@ -641,6 +664,7 @@ impl App {
                     "close" => tasks.push(self.handle(Message::CloseWindow)),
                     "open" => {
                         self.closing = false;
+                        self.body_target = 0.0;
                         self.motion.forget(Anim::BodyW);
                         self.motion.forget(Anim::BodyH);
                         self.motion.forget(Anim::BodyCover);
@@ -701,7 +725,47 @@ impl App {
         };
         let task = self.handle(message);
         self.sync_motion();
-        task
+        Task::batch([task, self.fit_surface()])
+    }
+
+    /// The body's resting height for the current tab.
+    fn body_h(&self) -> f32 {
+        body_height(
+            self.nav_h,
+            self.page_h.get(&self.tab).copied(),
+            self.body_max,
+        )
+    }
+
+    /// Keeps the window surface just big enough for the body. It grows at once when the
+    /// body is about to grow, and shrinks only once the body has settled, so the surface
+    /// never changes size mid-animation (resizing a GPU surface every frame stutters) and
+    /// nothing invisible is left catching clicks under a short body. KWin keeps the
+    /// window's top-left corner where it is, so the body stays put.
+    fn fit_surface(&mut self) -> Task<Message> {
+        let Some(id) = self.window else {
+            return Task::none();
+        };
+        if self.closing || self.rec.is_some() {
+            return Task::none();
+        }
+        let target = self.body_h();
+        let moving = self.motion.moving(Anim::BodyH, self.clock)
+            || self.motion.moving(Anim::BodyW, self.clock);
+        // While it moves, room for the grow spring's overshoot too.
+        let want = if moving {
+            self.surface_h.max(target + OVERSHOOT_ROOM)
+        } else {
+            target
+        };
+        if (want - self.surface_h).abs() < 1.0 {
+            return Task::none();
+        }
+        if !moving || want > self.surface_h {
+            self.surface_h = want;
+            return window::resize(id, surface_size(want));
+        }
+        Task::none()
     }
 
     /// Point every spring at what the state says now; pulse the status glow on a change.
@@ -728,9 +792,20 @@ impl App {
         m.target(Anim::Tab, tab as f32, None, motion::SNAPPY, now);
         // The body grows out of the pill when the window opens, then follows the page.
         if self.window.is_some() && !self.closing {
-            let h = body_height(self.nav_h, self.page_h.get(&self.tab).copied());
+            let h = body_height(
+                self.nav_h,
+                self.page_h.get(&self.tab).copied(),
+                self.body_max,
+            );
+            // Taller: the island's grow spring. Shorter: its shrink spring.
+            let curve = if h < self.body_target - 0.5 {
+                SHRINK
+            } else {
+                GROW
+            };
+            self.body_target = h;
             m.target(Anim::BodyW, BODY_W, Some(PILL.width), GROW, now);
-            m.target(Anim::BodyH, h, Some(PILL.height), GROW, now);
+            m.target_with(Anim::BodyH, h, Some(PILL.height), curve, now);
             m.target_after(
                 Anim::BodyCover,
                 0.0,
@@ -959,11 +1034,13 @@ impl App {
             Message::Legacy(msg) => self.on_legacy(msg),
             Message::WindowOpened(id) => {
                 self.window = Some(id);
-                // Let the rings and glow play in again.
+                // Let the rings and glow play in again, and the body grow out of the pill.
                 self.motion.reset();
+                self.body_target = 0.0;
+                let screen = window::monitor_size(id).map(Message::MonitorSize);
                 self.last_status = None;
                 self.last_charging.clear();
-                if self.rec.is_some() {
+                let next = if self.rec.is_some() {
                     // Give the compositor a moment to map the window before frame zero.
                     Task::perform(tokio::time::sleep(Duration::from_millis(800)), |_| {
                         Message::RecFrame
@@ -972,7 +1049,8 @@ impl App {
                     Task::none()
                 } else {
                     Task::perform(motion::probe_system(), Message::SystemMotion)
-                }
+                };
+                Task::batch([screen, next])
             }
             Message::Frame(_) => Task::none(),
             Message::RecFrame => self.rec_frame(),
@@ -1024,6 +1102,13 @@ impl App {
                 Some(id) if !self.closing => window::drag(id),
                 _ => Task::none(),
             },
+            Message::MonitorSize(Some(screen)) => {
+                // Leave room for a panel and the shadow.
+                let fit = screen.height - 2.0 * crate::ui::shell::MARGIN - 64.0;
+                self.body_max = self.body_max.min(fit.max(BODY_MIN_H));
+                Task::none()
+            }
+            Message::MonitorSize(None) => Task::none(),
             Message::NavHeight(h) => {
                 self.nav_h = h;
                 Task::none()
@@ -1400,10 +1485,7 @@ impl App {
 
         let content = container(column![nav, body]).width(Fill).height(Fill);
         let now = self.clock;
-        let inner = Size::new(
-            BODY_W,
-            body_height(self.nav_h, self.page_h.get(&self.tab).copied()),
-        );
+        let inner = Size::new(BODY_W, self.body_h());
         let w = self.motion.value(Anim::BodyW, inner.width, now);
         let h = self.motion.value(Anim::BodyH, inner.height, now);
         crate::ui::shell::morph(
@@ -1509,3 +1591,42 @@ mod record;
 
 use controls::*;
 use page_airpods::{has_art, pill_width};
+
+#[cfg(test)]
+mod body_tests {
+    use super::*;
+
+    #[test]
+    fn body_follows_the_page_within_limits() {
+        assert_eq!(body_height(60.0, Some(500.0), BODY_MAX_H), 560.0);
+        assert_eq!(body_height(60.0, Some(100.0), BODY_MAX_H), BODY_MIN_H);
+        assert_eq!(body_height(60.0, Some(1500.0), BODY_MAX_H), BODY_MAX_H);
+    }
+
+    #[test]
+    fn unmeasured_page_gets_the_tallest_body() {
+        assert_eq!(body_height(60.0, None, BODY_MAX_H), BODY_MAX_H);
+    }
+
+    #[test]
+    fn short_screen_caps_the_body_but_never_below_the_minimum() {
+        assert_eq!(body_height(60.0, Some(1500.0), 600.0), 600.0);
+        assert_eq!(body_height(60.0, Some(1500.0), 200.0), BODY_MIN_H);
+    }
+
+    #[test]
+    fn surface_adds_the_shadow_margin() {
+        let m = crate::ui::shell::MARGIN;
+        assert_eq!(
+            surface_size(500.0),
+            Size::new(BODY_W + 2.0 * m, 500.0 + 2.0 * m)
+        );
+    }
+
+    #[test]
+    fn body_springs_follow_apples_limits() {
+        assert!(PILL.width < BODY_W && PILL.height < BODY_MIN_H);
+        assert_eq!(GROW, motion::Curve::from(crate::ui::tokens::GROW));
+        assert_eq!(SHRINK, motion::Curve::from(crate::ui::tokens::SHRINK));
+    }
+}

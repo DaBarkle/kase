@@ -51,6 +51,16 @@ presentation logic is tested against these storyboards (`journeys_tests.rs`).
 | 9 | Switch the mic with a stem hold | "AirPods Mic" or "Desk Mic"; a shake if the AirPods mic isn't available | 2.2 s / 3 s | |
 | 10 | Change noise control quickly | One alert showing the final mode | 2.2 s from the last change | Three alerts in a row |
 
+## The app window (Kase 1.2)
+
+| You do | The window does |
+| --- | --- |
+| Open Kase (tray, app menu, or a second launch) | A black pill appears and grows into the window; the content fades up once it's nearly open |
+| Pick the Island or Settings tab | The window grows down to fit the page (taller pages scroll at 720) |
+| Go back to AirPods | The window shrinks to the AirPods page |
+| Take the pods out, so the "In the case" card goes | The AirPods page gets shorter and the window follows |
+| Close it (x, Esc, Alt+F4, taskbar) | The content fades and the window folds back into the pill, then disappears; Kase keeps running in the tray |
+
 ## The live case card (Kase 1.1)
 
 With **Follow the case live** on (Island settings, on by default) and the AirPods 4 art

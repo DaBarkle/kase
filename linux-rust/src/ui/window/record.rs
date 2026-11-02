@@ -109,12 +109,13 @@ mod tests {
 
     #[test]
     fn parses_and_sorts_steps() {
-        let s = parse("3200:tab=Island; 600:scenario=airpods4;bad;9:nope=1");
+        let s = parse("3200:tab=Island; 600:scenario=airpods4;bad;9:nope=1;5000:window=close");
         assert_eq!(
             s,
             vec![
                 (600.0, Step::Scenario("airpods4".into())),
                 (3200.0, Step::Tab("Island".into())),
+                (5000.0, Step::Window("close".into())),
             ]
         );
     }

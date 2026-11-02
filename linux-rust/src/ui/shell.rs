@@ -11,11 +11,14 @@ use iced::advanced::Renderer as _;
 use iced::advanced::widget::{Operation, Tree};
 use iced::advanced::{Clipboard, Layout, Shell, Widget, layout, mouse, overlay, renderer};
 use iced::{
-    Border, Color, Element, Event, Length, Point, Rectangle, Renderer, Shadow, Size, Theme, Vector,
+    Border, Color, Element, Event, Length, Point, Rectangle, Renderer, Shadow, Size, Theme,
+    Transformation, Vector,
 };
 
 /// Space round the body for its shadow (logical px, each side).
 pub const MARGIN: f32 = 28.0;
+/// How much smaller the content starts as it fades in.
+const BLOOM: f32 = 0.04;
 
 /// What the body looks like this frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -151,7 +154,8 @@ impl<M> Widget<M, Theme, Renderer> for Morph<'_, M> {
                     radius: radius.into(),
                 },
                 shadow: Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.45 * lift),
+                    // Light bodies sit on light desktops: a softer shadow reads the same.
+                    color: Color::from_rgba(0.0, 0.0, 0.0, if t.dark { 0.45 } else { 0.22 } * lift),
                     offset: Vector::new(0.0, 8.0 * lift),
                     blur_radius: 24.0 * lift,
                 },
@@ -169,10 +173,29 @@ impl<M> Widget<M, Theme, Renderer> for Morph<'_, M> {
         if self.body.cover >= 0.995 {
             return;
         }
+        // While it fades in, the content blooms from 96% to full size, from the top centre.
+        let bloom = 1.0 - BLOOM * self.body.cover.clamp(0.0, 1.0);
         renderer.with_layer(clip, |r| {
-            self.content
-                .as_widget()
-                .draw(&tree.children[0], r, theme, style, child, cursor, &clip);
+            let draw = |r: &mut Renderer| {
+                self.content.as_widget().draw(
+                    &tree.children[0],
+                    r,
+                    theme,
+                    style,
+                    child,
+                    cursor,
+                    &clip,
+                );
+            };
+            if bloom < 0.9999 {
+                let o = Point::new(rect.center_x(), rect.y);
+                let t = Transformation::translate(o.x, o.y)
+                    * Transformation::scale(bloom)
+                    * Transformation::translate(-o.x, -o.y);
+                r.with_transformation(t, draw);
+            } else {
+                draw(r);
+            }
         });
         if self.body.cover > 0.001 {
             // Its own layer, drawn after the content's (text draws above quads in a layer).

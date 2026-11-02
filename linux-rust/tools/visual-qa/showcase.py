@@ -59,20 +59,21 @@ class Clip:
     note: str = ""
 
 
-# The window: settle on the closed case, connect, change noise control, visit each tab.
+# The window: grows out of the pill onto the closed case, connects, changes noise control,
+# grows and shrinks through each tab, then folds back into the pill (so the clip loops).
 WINDOW_STEPS = ("2600:scenario=anc;6200:mode=transparency;7600:mode=adaptive;"
-                "9000:tab=island;10600:tab=settings;12000:tab=airpods")
+                "9000:tab=island;10600:tab=settings;12000:tab=airpods;13800:window=close")
 
 CLIPS = [
     Clip("hero", "island", script="hero.json",
          note="Case opens, the card plays the 3D spin, pods come out, noise control"),
     Clip("alerts", "island", script="alerts.json",
          note="Charging, iPhone takes the audio and gives it back, mic, low battery"),
-    Clip("window-dark", "window", scenario="putaway", theme="dark", end_ms=14600,
-         steps=WINDOW_STEPS, trim_ms=2000, width=560, quality=88,
-         note="AirPods connect: case opens, rings fill; noise control; then the tabs"),
-    Clip("window-light", "window", scenario="putaway", theme="light", end_ms=14600,
-         steps=WINDOW_STEPS, trim_ms=2000, width=560, quality=88),
+    Clip("window-dark", "window", scenario="putaway", theme="dark", end_ms=14500,
+         steps=WINDOW_STEPS, width=560, quality=88,
+         note="Grows out of the pill; AirPods connect; noise control; the tabs; folds away"),
+    Clip("window-light", "window", scenario="putaway", theme="light", end_ms=14500,
+         steps=WINDOW_STEPS, width=560, quality=88),
     Clip("case-3d", "live", width=560, quality=92,
          note="The live 3D case on its own: lid, right pod, left pod, back in, lid shut"),
 ]
@@ -133,23 +134,6 @@ def timed_frames(frames: Path, surface: str) -> list[tuple[Path | None, float]]:
 
 
 # --------------------------------------------------------------------------- framing
-
-
-def round_window(img: Image.Image, radius: int, edge: tuple[int, int, int, int]):
-    """Rounded corners and a hairline edge, transparent outside: just the window."""
-    w, h = img.size
-    mask = Image.new("L", (w * 4, h * 4), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), radius * 4, 255)
-    mask = mask.resize((w, h), Image.LANCZOS)
-    out = img.convert("RGBA")
-    out.putalpha(ImageChops.multiply(out.getchannel("A"), mask))
-    ring = Image.new("L", (w * 4, h * 4), 0)
-    d = ImageDraw.Draw(ring)
-    d.rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), radius * 4, outline=255, width=4)
-    ring = ring.resize((w, h), Image.LANCZOS).point(lambda v: v * edge[3] // 255)
-    line = Image.new("RGBA", (w, h), edge[:3] + (0,))
-    line.putalpha(ring)
-    return Image.alpha_composite(out, line)
 
 
 def union_box(paths, pad: int):
@@ -371,7 +355,17 @@ def build(clip: Clip, frames: Path) -> None:
         before = [x for x in tf if x[1] <= clip.trim_ms]
         tf = ([(before[-1][0], float(clip.trim_ms))] if before else []) + [
             x for x in tf if x[1] > clip.trim_ms]
-    if clip.kind == "island":
+    tail_ms = 1500
+    if clip.kind == "window":
+        # The window draws its own rounded body and shadow on a transparent surface: crop
+        # to everything it ever draws and keep the transparency. It ends folded into the
+        # pill, where it starts, so the clip loops.
+        box = union_box([p for p, _ in tf if p], pad=8)
+        blank = Image.new("RGBA", (box[2] - box[0], box[3] - box[1]), (0, 0, 0, 0))
+        imgs = [scaled(Image.open(p).convert("RGBA").crop(box) if p else blank, clip.width)
+                for p, _ in tf]
+        tail_ms = 200
+    elif clip.kind == "island":
         # Start on the first frame with the island on screen, end on the last one.
         drawn = [i for i, (p, _) in enumerate(tf) if p is not None
                  and Image.open(p).getchannel("A").getextrema()[1] > 8]
@@ -381,15 +375,8 @@ def build(clip: Clip, frames: Path) -> None:
         blank = Image.new("RGBA", (box[2] - box[0], box[3] - box[1]), (0, 0, 0, 0))
         imgs = [scaled(Image.open(p).convert("RGBA").crop(box) if p else blank, clip.width)
                 for p, _ in tf]
-    else:
-        light = clip.theme == "light"
-        edge = (0, 0, 0, 40) if light else (255, 255, 255, 46)
-        imgs = []
-        for p, _ in tf:
-            img = Image.open(p).convert("RGBA")
-            imgs.append(scaled(round_window(img, 14 * SCALE, edge), clip.width))
     times = [t for _, t in tf]
-    encode(imgs, frame_durations(times, 1500), OUT / f"{clip.name}.webp", clip.quality)
+    encode(imgs, frame_durations(times, tail_ms), OUT / f"{clip.name}.webp", clip.quality)
 
 
 def build_anim(clip: Clip) -> None:

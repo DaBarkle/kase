@@ -6,6 +6,28 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-02
+
+### Added
+- **The window grows out of a pill, like the island.** The KDE titlebar and its buttons are
+  gone. Opening Kase shows a small black pill that grows into the window, then the content
+  fades up. Closing it (the new × in the corner, Esc, Alt+F4 or the taskbar) folds it back
+  into the pill. It uses the island's own springs, so the two move alike. ([#69])
+- **The window fits each tab.** Its height follows the page: it grows for Island and
+  Settings and shrinks back for AirPods, and follows the AirPods page as cards come and
+  go. It stays 420 wide (on Wayland an app can't move its own window, so only the height
+  changes), never gets taller than your screen, and longer pages scroll. ([#69])
+- Drag the empty space around the tabs to move the window.
+
+### Changed
+- Kase draws the window's rounded corners and shadow itself. The window surface is only
+  resized when the shape has stopped moving, so the morph never stutters. With Reduce
+  motion on, the window simply fades in and closes at once. ([#69])
+
+### Documentation
+- The README's window demos show the window growing out of the pill, fitting each tab and
+  folding away. DESIGN.md and JOURNEYS.md describe the window's shape and motion. ([#69])
+
 ## [1.1.3] - 2026-11-02
 
 ### Fixed
@@ -783,6 +805,7 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
 [#67]: https://github.com/DaBarkle/kase/pull/67
+[#69]: https://github.com/DaBarkle/kase/pull/69
 [#68]: https://github.com/DaBarkle/kase/pull/68
 [#66]: https://github.com/DaBarkle/kase/pull/66
 [#65]: https://github.com/DaBarkle/kase/pull/65

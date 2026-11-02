@@ -112,7 +112,14 @@ knobs (toggle, slider) get a hairline edge and a soft shadow.
 
 | Element | Value |
 | --- | --- |
-| Window | 420 x 700 by default, so every AirPods page (including In the case) fits without scrolling |
+| Window | No titlebar. A transparent window with one rounded body (radius 30, hairline edge, its own shadow in a 28 px margin), drawn by `src/ui/shell.rs` |
+| Body size | 420 wide, always (Wayland apps can't move their window and KWin keeps the top-left corner fixed, so only the height may change). Height follows the tab's content: 380 to 720, never taller than the screen; longer pages scroll |
+| Open | The body grows out of the island's compact pill (150 x 40) on the island's grow spring, then the content fades up and blooms from 96% |
+| Tab change | The body grows (grow spring) or shrinks (shrink spring) to the new page's height while the page slides in |
+| Close | The x button, Esc, Alt+F4 or the taskbar: the content fades and the body folds back into the pill (shrink spring), then the window closes. Kase stays in the tray |
+| Move | Drag the empty space round the tabs |
+| Window surface | Grows before the body grows; trimmed to the body only once it has settled, never resized mid-animation (resizing a GPU surface every frame stutters) |
+| Reduce motion | No morph: the body appears at its size and the content fades; closing is immediate |
 | Spacing grid | 4: 4, 8, 12, 16, 20, 24, 32 |
 | Page side margin | 16 |
 | Groups (cards) | Radius 20; rows padded 13 vertical, 16 horizontal; rows at least 48 tall |

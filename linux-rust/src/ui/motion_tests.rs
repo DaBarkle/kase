@@ -128,3 +128,17 @@ fn kdeglobals_instant_animations_mean_reduced() {
     );
     assert_eq!(kde_reduced("[KDE]\nSingleClick=false"), None);
 }
+
+#[test]
+fn switching_curve_mid_flight_keeps_position() {
+    let t0 = Instant::now();
+    let mut m: Motion<u8> = Motion::default();
+    m.target(1, 100.0, Some(0.0), SNAPPY, t0);
+    let mid = at(t0, 0.1);
+    let before = m.value(1, 0.0, mid);
+    m.target_with(1, 100.0, None, SMOOTH, mid);
+    assert!((m.value(1, 0.0, mid) - before).abs() < 0.01);
+    assert!(m.moving(1, mid));
+    assert!(!m.moving(1, at(t0, 10.0)));
+    assert!(!m.moving(2, mid));
+}

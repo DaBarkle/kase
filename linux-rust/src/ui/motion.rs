@@ -123,6 +123,22 @@ impl Spring {
         self.since = now;
     }
 
+    /// Switch to another curve mid-flight, keeping the current position and velocity.
+    pub fn set_curve(&mut self, curve: Curve, now: Instant) {
+        if curve == self.curve {
+            return;
+        }
+        let (x, v) = if self.at_rest(now) {
+            (0.0, 0.0)
+        } else {
+            self.state(self.elapsed(now))
+        };
+        self.curve = curve;
+        self.x0 = x;
+        self.v0 = v;
+        self.since = now;
+    }
+
     /// Jump to `value` and spring back to the current target (used for pulses).
     pub fn kick(&mut self, value: f32, now: Instant) {
         self.x0 = value - self.target;
@@ -182,6 +198,24 @@ impl<K: Eq + Hash + Copy> Motion<K> {
         }
     }
 
+    /// Like [`Motion::target`], but an existing spring also switches to `curve` (keeping
+    /// its position and velocity): a body growing and shrinking on different springs.
+    pub fn target_with(
+        &mut self,
+        key: K,
+        target: f32,
+        from: Option<f32>,
+        curve: Curve,
+        now: Instant,
+    ) {
+        if !self.reduced
+            && let Some(s) = self.springs.get_mut(&key)
+        {
+            s.set_curve(curve, now);
+        }
+        self.target(key, target, from, curve, now);
+    }
+
     /// Forget one spring, so its next target plays in from `from` again.
     pub fn forget(&mut self, key: K) {
         self.springs.remove(&key);
@@ -201,6 +235,11 @@ impl<K: Eq + Hash + Copy> Motion<K> {
     /// Forget every spring, so the next targets start from `from` again (window reopened).
     pub fn reset(&mut self) {
         self.springs.clear();
+    }
+
+    /// One spring is still moving.
+    pub fn moving(&self, key: K, now: Instant) -> bool {
+        self.springs.get(&key).is_some_and(|s| !s.at_rest(now))
     }
 
     pub fn is_animating(&self, now: Instant) -> bool {
