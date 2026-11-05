@@ -590,6 +590,8 @@ by hand:
 sudo systemctl restart bluetooth
 ```
 
+This is a bug in BlueZ itself; see [#74](https://github.com/DaBarkle/kase/issues/74) for details and the upstream report.
+
 </details>
 
 <details>
