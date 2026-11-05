@@ -6,6 +6,16 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-06
+
+### Fixed
+- **AirPods no longer stay off the PC after a connection drops halfway.** If the link
+  dropped while BlueZ was still connecting, BlueZ kept the unfinished work and refused every
+  later connect as busy, from Kase and from any other app, until the Bluetooth service was
+  restarted. The case card showed for a moment and went away, and opening the lid again did
+  nothing. Kase now spots this and clears it with an ordinary Disconnect, which needs no
+  root, then connects again. ([#70])
+
 ## [1.2.0] - 2026-11-02
 
 ### Added
@@ -805,6 +815,7 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
 [#67]: https://github.com/DaBarkle/kase/pull/67
+[#70]: https://github.com/DaBarkle/kase/pull/70
 [#69]: https://github.com/DaBarkle/kase/pull/69
 [#68]: https://github.com/DaBarkle/kase/pull/68
 [#66]: https://github.com/DaBarkle/kase/pull/66
