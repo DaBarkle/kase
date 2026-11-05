@@ -6,6 +6,18 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-11-06
+
+### Added
+- **One-click Restart Bluetooth when Bluetooth gets stuck.** Sometimes the AirPods drop the
+  PC halfway through setting up audio, and the Linux Bluetooth service keeps its audio part
+  marked "still connecting" for good. After that it refuses every connect, from Kase and
+  from the desktop's Bluetooth menu. 1.2.1's Disconnect can't clear this, and neither can
+  switching Bluetooth off and on. Only restarting the service does. When Kase's clearing
+  hasn't helped twice in a row, it now shows a "Bluetooth is stuck" notification with a
+  **Restart Bluetooth** button. The button asks for your password, restarts the service,
+  and Kase reconnects the AirPods by itself a few seconds later. Kase never restarts
+  Bluetooth without asking. ([#73])
 ## [1.2.2] - 2026-11-06
 
 ### Fixed
@@ -834,6 +846,7 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
 [#67]: https://github.com/DaBarkle/kase/pull/67
+[#73]: https://github.com/DaBarkle/kase/pull/73
 [#72]: https://github.com/DaBarkle/kase/pull/72
 [#70]: https://github.com/DaBarkle/kase/pull/70
 [#69]: https://github.com/DaBarkle/kase/pull/69

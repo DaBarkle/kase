@@ -19,9 +19,9 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
 
-/// Runs as root under pkexec, with `$1` = `on` | `off` (Apple device mode) or
-/// `exp-on` | `exp-off` (BlueZ experimental features). Idempotent; each pair only touches
-/// its own key.
+/// Runs as root under pkexec, with `$1` = `on` | `off` (Apple device mode),
+/// `exp-on` | `exp-off` (BlueZ experimental features) or `restart` (no edit, only the
+/// restart). Idempotent; each pair only touches its own key.
 ///
 /// * on: backs up main.conf once, drops any earlier Kase line, comments out a
 ///   DeviceID the user set themselves (marked so `off` can restore it), then adds ours
@@ -30,6 +30,7 @@ use tokio::process::Command;
 /// * exp-on: backs up main.conf once (its own backup), then adds `Experimental = true` under
 ///   `[General]` unless it's already set; an active `Experimental = false` is replaced.
 /// * exp-off: removes active `Experimental = true` lines (BlueZ's default is off).
+/// * restart: changes nothing; for a bluetoothd stuck on an AirPods connect.
 ///
 /// Then bluetoothd is restarted so the change applies (connected devices drop briefly),
 /// through systemd, OpenRC or runit. Only POSIX sed and awk: no GNU-only addresses.
@@ -39,7 +40,7 @@ ours='DeviceID = bluetooth:004C:0000:0000'
 mark='#kase-disabled# '
 old_mark='#bazzitepods-disabled# '
 exp='^[[:space:]]*Experimental[[:space:]]*='
-if [ ! -f "$f" ]; then
+if [ "${1:-}" != restart ] && [ ! -f "$f" ]; then
   mkdir -p /etc/bluetooth
   printf '[General]\n' > "$f"
 fi
@@ -74,11 +75,13 @@ case "${1:-}" in
     sed -i '/^[[:space:]]*DeviceID[[:space:]]*=[[:space:]]*bluetooth:004C:/d' "$f"
     sed -i "s|^$mark||; s|^$old_mark||" "$f"
     ;;
+  restart)
+    ;;
   *)
     exit 2
     ;;
 esac
-command -v restorecon >/dev/null 2>&1 && restorecon "$f" || true
+[ "${1:-}" = restart ] || { command -v restorecon >/dev/null 2>&1 && restorecon "$f" || true; }
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
   systemctl restart bluetooth.service
 elif command -v rc-service >/dev/null 2>&1; then
@@ -342,6 +345,27 @@ pub async fn experimental_status() -> Option<bool> {
 pub async fn set(setting: Setting, on: bool) -> Result<bool, Failure> {
     let arg = setting.arg(on);
     let name = setting.name();
+    run_helper(name, arg).await?;
+
+    // bluetoothd takes a moment to come back and re-register the adapter.
+    for _ in 0..20 {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        if setting.status().await == Some(on) {
+            info!("{name}: now {arg}");
+            return Ok(on);
+        }
+    }
+    Err(Failure::NotApplied)
+}
+
+/// Restarts bluetoothd, behind the system password prompt. The only cure for BlueZ stuck
+/// on a half-finished AirPods audio connect (see `supervisor::offer_restart`).
+pub async fn restart_bluetooth() -> Result<(), Failure> {
+    run_helper("Restart Bluetooth", "restart").await
+}
+
+/// Runs [`SCRIPT`] with `arg` under pkexec.
+async fn run_helper(name: &str, arg: &str) -> Result<(), Failure> {
     info!("{name}: asking pkexec to run {arg}");
     let out = host_command(
         "pkexec",
@@ -378,16 +402,7 @@ pub async fn set(setting: Setting, on: bool) -> Result<bool, Failure> {
             _ => Failure::Other(stderr.lines().last().unwrap_or_default().to_string()),
         });
     }
-
-    // bluetoothd takes a moment to come back and re-register the adapter.
-    for _ in 0..20 {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        if setting.status().await == Some(on) {
-            info!("{name}: now {arg}");
-            return Ok(on);
-        }
-    }
-    Err(Failure::NotApplied)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -507,6 +522,11 @@ mod tests {
 
     /// Bazzite's main.conf, cut down: a commented default and KernelExperimental.
     const BAZZITE: &str = "[General]\n#Experimental = false\nKernelExperimental = 15c0a148\n\n[Policy]\nAutoEnable=true\n";
+
+    #[test]
+    fn restart_changes_nothing() {
+        assert_eq!(run(BAZZITE, "restart"), BAZZITE);
+    }
 
     #[test]
     fn experimental_on_adds_one_line_and_off_restores() {

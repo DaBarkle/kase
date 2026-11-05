@@ -325,6 +325,80 @@ pub(crate) fn notify(summary: String, body: String) {
     });
 }
 
+/// Shows a notification with one button that stays until answered, and waits (blocking,
+/// up to `wait`) for the answer. True when the button was pressed.
+pub(crate) fn notify_with_action(
+    summary: &str,
+    body: &str,
+    button: &str,
+    wait: std::time::Duration,
+) -> bool {
+    use dbus::message::MatchRule;
+    use std::sync::{Arc, Mutex};
+    let run = || -> Result<bool, dbus::Error> {
+        let conn = dbus::blocking::Connection::new_session()?;
+        let answer: Arc<Mutex<Option<(u32, String)>>> = Arc::default();
+        let closed: Arc<Mutex<Option<u32>>> = Arc::default();
+        let a = answer.clone();
+        conn.add_match(
+            MatchRule::new_signal("org.freedesktop.Notifications", "ActionInvoked"),
+            move |(id, key): (u32, String), _, _| {
+                *a.lock().unwrap() = Some((id, key));
+                true
+            },
+        )?;
+        let c = closed.clone();
+        conn.add_match(
+            MatchRule::new_signal("org.freedesktop.Notifications", "NotificationClosed"),
+            move |(id, _reason): (u32, u32), _, _| {
+                *c.lock().unwrap() = Some(id);
+                true
+            },
+        )?;
+        let proxy = conn.with_proxy(
+            "org.freedesktop.Notifications",
+            "/org/freedesktop/Notifications",
+            std::time::Duration::from_secs(3),
+        );
+        let mut hints: dbus::arg::PropMap = Default::default();
+        hints.insert(
+            "urgency".into(),
+            dbus::arg::Variant(Box::new(2u8) as Box<dyn dbus::arg::RefArg>),
+        );
+        let (id,): (u32,) = proxy.method_call(
+            "org.freedesktop.Notifications",
+            "Notify",
+            (
+                "Kase",
+                0u32,
+                "io.github.dabarkle.Kase",
+                summary,
+                body,
+                vec!["restart".to_string(), button.to_string()],
+                hints,
+                0i32,
+            ),
+        )?;
+        let until = std::time::Instant::now() + wait;
+        while std::time::Instant::now() < until {
+            conn.process(std::time::Duration::from_millis(500))?;
+            if let Some((aid, key)) = answer.lock().unwrap().clone()
+                && aid == id
+            {
+                return Ok(key == "restart");
+            }
+            if *closed.lock().unwrap() == Some(id) {
+                return Ok(false);
+            }
+        }
+        Ok(false)
+    };
+    run().unwrap_or_else(|e| {
+        debug!("Notification failed: {e}");
+        false
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

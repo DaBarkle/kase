@@ -270,6 +270,8 @@ struct AdapterState_ {
     connect_trouble: HashMap<Address, ConnectTrouble>,
     /// When Kase itself last called Disconnect to clear a stuck connect.
     cleared_at: HashMap<Address, Instant>,
+    /// Clears in a row that didn't help, and whether the user was offered a restart.
+    failed_clears: HashMap<Address, (u32, bool)>,
     /// The PC is going to sleep: no new device sessions until it wakes.
     asleep: bool,
 }
@@ -481,6 +483,11 @@ const SLOW_RECONNECT_INTERVAL: Duration = Duration::from_secs(60);
 const MIN_RECONNECT_GAP: Duration = Duration::from_secs(5);
 /// BlueZ refusing connects for this long is no page in progress: those give up in about 8 s.
 const BUSY_STUCK_AFTER: Duration = Duration::from_secs(15);
+/// Clears that didn't help before Kase offers to restart Bluetooth. The first clear comes
+/// at once after a cancelled connect, so two means about 20 s of a real jam.
+const RESTART_AFTER_CLEARS: u32 = 2;
+/// How long the restart offer waits for an answer.
+const RESTART_OFFER_WAIT: Duration = Duration::from_secs(30 * 60);
 /// How long after clearing a stuck connect a local drop is still put down to Kase.
 const CLEARED_DROP_WINDOW: Duration = Duration::from_secs(5);
 /// Upper bound on waiting for a cancelled device task to finish.
@@ -697,6 +704,10 @@ async fn run_adapter(adapter: &Adapter, ctx: &mut SupervisorCtx) {
                             maybe_reconnect(adapter, addr, &mut st, &ctx.kick_tx).await;
                         }
                         Kick::ConnectEnded(addr, end) => {
+                            if end == ConnectEnd::Other {
+                                // A real answer (page timeout, connected): not jammed.
+                                st.failed_clears.remove(&addr);
+                            }
                             let stuck = st
                                 .connect_trouble
                                 .entry(addr)
@@ -844,6 +855,12 @@ async fn clear_stuck_connect(
     }
     warn!("BlueZ is stuck on an old connect to {addr}; clearing it");
     st.cleared_at.insert(addr, Instant::now());
+    let (clears, offered) = st.failed_clears.entry(addr).or_default();
+    *clears += 1;
+    if restart_due(*clears, *offered) {
+        *offered = true;
+        offer_restart(addr);
+    }
     if bounded(device.disconnect()).await.is_none() {
         warn!("BlueZ did not answer clearing the connect to {addr}");
     }
@@ -853,6 +870,57 @@ async fn clear_stuck_connect(
     if !busy_elsewhere(addr) {
         maybe_reconnect(adapter, addr, st, kick_tx).await;
     }
+}
+
+/// Clearing didn't help [`RESTART_AFTER_CLEARS`] times in a row: offer a restart, once per
+/// jam.
+fn restart_due(clears: u32, offered: bool) -> bool {
+    !offered && clears >= RESTART_AFTER_CLEARS
+}
+
+/// BlueZ's audio (A2DP) half is the one stuck when clearing can't help. Seen 2026-11-05
+/// 14:23 UTC: after `No reply to SetConfiguration request`, every connect logged `a2dp-sink
+/// profile connect failed: Device or resource busy`. BlueZ 5.87's `sink_connect` refuses
+/// while the sink's `connect_id` is set, and that id is only cleared by the A2DP setup's own
+/// callback, which never came, or by the service being freed. `Device1.Disconnect` and an
+/// adapter power cycle both left it set (01:26 local, Plasma's toggle); restarting
+/// bluetoothd cleared it at once. So ask the user, with one button, to restart Bluetooth
+/// (the system password prompt), never without asking.
+fn offer_restart(addr: Address) {
+    warn!(
+        "AirPods {addr}: BlueZ's audio connect is still stuck after clearing; offering to restart Bluetooth"
+    );
+    tokio::spawn(async move {
+        let host = crate::apple_mode::probe_host().await;
+        if !host.can_change {
+            crate::overlay_feed::notify(
+                "Bluetooth is stuck".into(),
+                "Your AirPods can't connect until Bluetooth restarts. Run: sudo systemctl restart bluetooth".into(),
+            );
+            return;
+        }
+        let pressed = tokio::task::spawn_blocking(|| {
+            crate::overlay_feed::notify_with_action(
+                "Bluetooth is stuck",
+                "Your AirPods can't connect until Bluetooth restarts. Other Bluetooth devices drop for a few seconds.",
+                "Restart Bluetooth",
+                RESTART_OFFER_WAIT,
+            )
+        })
+        .await
+        .unwrap_or(false);
+        if !pressed {
+            info!("AirPods {addr}: Bluetooth restart not taken up");
+            return;
+        }
+        match crate::apple_mode::restart_bluetooth().await {
+            Ok(()) => info!("AirPods {addr}: restarted Bluetooth"),
+            Err(e) => {
+                warn!("AirPods {addr}: Bluetooth restart failed: {e:?}");
+                crate::overlay_feed::notify("Bluetooth wasn't restarted".into(), e.message());
+            }
+        }
+    });
 }
 
 async fn watch_device(
@@ -974,6 +1042,7 @@ async fn reconcile(
         let cancel = CancellationToken::new();
         info!("AirPods connected: {} ({})", name, addr);
         st.away.remove(&addr);
+        st.failed_clears.remove(&addr);
         st.drop_reason.remove(&addr);
         st.forget_kept(addr, "connected again");
         let dctx = DeviceContext {
@@ -1161,6 +1230,14 @@ mod tests {
             st.real_drop_reason(addr, DropReason::Timeout),
             DropReason::Timeout
         );
+    }
+
+    #[test]
+    fn restart_is_offered_once_after_two_clears_that_did_not_help() {
+        assert!(!restart_due(1, false));
+        assert!(restart_due(2, false));
+        assert!(restart_due(5, false));
+        assert!(!restart_due(5, true));
     }
 
     #[test]
