@@ -172,6 +172,11 @@ pub async fn run(mac: Address, name: String, ctx: DeviceContext, cancel: Cancell
         media.lock().await.stop_playback_listener().await;
         ctx.battery.send(BatteryInput::AacpLink(mac, false));
         release_shared_state(&ctx, &mac_s, &aacp).await;
+        // Who had the audio belongs to the session that just ended. Keeping it made the
+        // next session claim the AirPods the moment it opened, even from an iPhone playing
+        // a video or on a call (seen at the edge of range, 2026-11-02 and 2026-11-05).
+        ctx.hub
+            .update_device(&mac_s, &name, |d| d.owns_audio = None);
         if cancel.is_cancelled() {
             break;
         }
@@ -216,13 +221,17 @@ pub async fn run(mac: Address, name: String, ctx: DeviceContext, cancel: Cancell
     // Quitting the app is not walking away: leave the music playing.
     if was_worn && !crate::quitting() {
         controller.pause_all_media().await;
+        // Worn and gone: at the edge of range this repeats, and the route watcher leaves
+        // the AirPods on the other device until the link has been steady for a while.
+        route::note_link_drop(&mac_s);
     }
     controller.end_conversation().await;
     controller.stop_playback_listener().await;
     drop(controller);
 
+    // set_link also clears the routing state of the session that just ended.
+    ctx.hub.set_link(&mac_s, LinkState::Disconnected);
     ctx.hub.update_device(&mac_s, &name, |d| {
-        d.link = LinkState::Disconnected;
         d.in_case = dropped_in_case(&mac_s);
         d.in_ear = (None, None);
         d.audio = None;
@@ -651,6 +660,25 @@ mod tests {
             .await
             .expect("stuck step reported");
         assert_eq!(step, "watching the audio route");
+    }
+
+    #[test]
+    fn a_worn_link_drop_makes_the_link_unsteady_for_a_while() {
+        let mac = "11:22:33:44:55:66";
+        assert!(!route::link_unsteady(mac));
+        route::note_link_drop(&mac.to_ascii_lowercase());
+        assert!(route::link_unsteady(mac));
+        assert!(!route::link_unsteady("66:55:44:33:22:11"));
+    }
+
+    #[test]
+    fn a_disconnect_forgets_who_had_the_audio() {
+        // Kept across a drop, it made the next session claim the AirPods off an iPhone.
+        let hub = Hub::new();
+        hub.update_device("AA", "AirPods", |d| d.owns_audio = Some(true));
+        hub.set_link("AA", LinkState::Connected);
+        hub.set_link("AA", LinkState::Disconnected);
+        assert_eq!(owns_audio(&hub, "AA"), None);
     }
 
     #[tokio::test]

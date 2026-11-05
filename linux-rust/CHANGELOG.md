@@ -6,6 +6,24 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-11-06
+
+### Fixed
+- **A reconnect no longer pulls the AirPods off your iPhone.** Kase kept remembering that
+  the PC had the audio after the link dropped, so at the edge of range every reconnect
+  claimed the AirPods straight away, even from an iPhone playing a video or on a call. Kase
+  now forgets this when the link drops, and only makes that claim while the PC really plays
+  and the iPhone is neither playing nor on a call. ([#72])
+- **Short videos on the iPhone are no longer cut off.** Feeds like Instagram and Facebook
+  reels say "stopped" between clips, and Kase took the AirPods back 5 seconds later, which
+  paused the video on the iPhone. After the iPhone has played a video, Kase now waits for
+  45 seconds of quiet, or 2 minutes if you just moved the AirPods back to the iPhone. ([#72])
+
+### Changed
+- **No automatic take-backs while the link to the PC is unsteady.** For 3 minutes after the
+  AirPods drop off the PC while worn, Kase leaves them on the iPhone unless you press play
+  on the PC. ([#72])
+
 ## [1.2.1] - 2026-11-06
 
 ### Fixed
@@ -816,6 +834,7 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#57]: https://github.com/DaBarkle/kase/pull/57
 [#59]: https://github.com/DaBarkle/kase/pull/59
 [#67]: https://github.com/DaBarkle/kase/pull/67
+[#72]: https://github.com/DaBarkle/kase/pull/72
 [#70]: https://github.com/DaBarkle/kase/pull/70
 [#69]: https://github.com/DaBarkle/kase/pull/69
 [#68]: https://github.com/DaBarkle/kase/pull/68

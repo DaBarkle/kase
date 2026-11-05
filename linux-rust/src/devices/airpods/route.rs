@@ -110,6 +110,9 @@ pub(super) async fn route_lost(
     let borrowed =
         source.r#type != AudioSourceType::Call && !aacp.state.lock().await.peer_streaming;
     route.lost(borrowed);
+    if !borrowed && source.r#type != AudioSourceType::Call {
+        route.peer_media();
+    }
     if let Some(audio) = audio {
         audio.route_away();
     }
@@ -171,6 +174,11 @@ pub(super) struct RouteState {
     pub(super) auto_takes: Vec<Instant>,
     /// No automatic take-backs until then.
     pub(super) backoff_until: Option<Instant>,
+    /// When the other device last said it plays media (a video, music), so short gaps
+    /// between videos in a feed don't count as it being done.
+    pub(super) peer_media_at: Option<Instant>,
+    /// When the other device last took the AirPods straight back after this PC took them.
+    pub(super) moved_back_at: Option<Instant>,
     /// The last decision logged, so the log shows each change once.
     pub(super) last_verdict: Option<Verdict>,
     /// Keeps this PC on the AirPods' host list next to an iPhone.
@@ -246,6 +254,13 @@ impl RouteWatch {
         self.lock().peer_quiet_since = None;
     }
 
+    /// The other device said it plays media (not only a notification sound).
+    pub(super) fn peer_media(&self) {
+        let mut state = self.lock();
+        state.peer_quiet_since = None;
+        state.peer_media_at = Some(Instant::now());
+    }
+
     /// The other device took the AirPods back right after this PC took them: the user
     /// wants them there, so stop taking them back automatically for a while.
     pub(super) fn moved_back(&self) {
@@ -259,6 +274,7 @@ impl RouteWatch {
                 "The AirPods were moved back to the other device; not taking them back for {BACKOFF:?}"
             );
             state.backoff_until = Some(Instant::now() + BACKOFF);
+            state.moved_back_at = Some(Instant::now());
             state.auto_takes.clear();
         }
     }
@@ -302,6 +318,44 @@ const MOVED_BACK_WINDOW: Duration = Duration::from_secs(20);
 /// While this PC plays, it reminds the other devices now and then, so one that joined or
 /// missed the last message doesn't take the AirPods for a notification.
 const ANNOUNCE_EVERY: Duration = Duration::from_secs(30);
+
+/// After the other device took the AirPods straight back, it counts as wanted there for
+/// this long (it then needs a longer quiet spell before they come home).
+const MOVED_BACK_MEMORY: Duration = Duration::from_secs(30 * 60);
+/// The other device played media this recently: a feed of short videos is probably still
+/// going, so wait for a longer quiet spell.
+const PEER_MEDIA_MEMORY: Duration = Duration::from_secs(10 * 60);
+
+/// The AirPods dropped off this PC while worn, this recently: the link is unsteady (the
+/// edge of range), so no automatic take-backs until it has held for a while.
+const UNSTEADY_AFTER_DROP: Duration = Duration::from_secs(3 * 60);
+
+/// When the AirPods last dropped off this PC while worn, per AirPods. It outlives the
+/// device task, which ends with the link.
+static LINK_DROPS: std::sync::Mutex<Option<HashMap<String, std::time::Instant>>> =
+    std::sync::Mutex::new(None);
+
+/// The Bluetooth link to these AirPods dropped while they were worn (walked out of range).
+pub(super) fn note_link_drop(mac: &str) {
+    let mut drops = LINK_DROPS.lock().unwrap_or_else(|e| e.into_inner());
+    drops
+        .get_or_insert_with(HashMap::new)
+        .insert(mac.to_ascii_uppercase(), std::time::Instant::now());
+}
+
+/// How long ago the link to these AirPods last dropped while worn, if it has.
+fn since_link_drop(mac: &str) -> Option<Duration> {
+    let drops = LINK_DROPS.lock().unwrap_or_else(|e| e.into_inner());
+    drops
+        .as_ref()?
+        .get(&mac.to_ascii_uppercase())
+        .map(|t| t.elapsed())
+}
+
+/// The link to these AirPods dropped a moment ago: this PC is at the edge of their range.
+pub(super) fn link_unsteady(mac: &str) -> bool {
+    since_link_drop(mac).is_some_and(|d| d < UNSTEADY_AFTER_DROP)
+}
 
 /// How often to compare local playback with who has the AirPods.
 pub(super) const ROUTE_WATCH_INTERVAL: Duration = Duration::from_millis(500);
@@ -441,6 +495,13 @@ pub(super) async fn watch_route(
                 && !borrowed
                 && !crate::media_controller::auto_paused_recently(),
             backing_off: state.backoff_until.is_some_and(|until| now < until),
+            peer_media_recent: state
+                .peer_media_at
+                .is_some_and(|t| t.elapsed() < PEER_MEDIA_MEMORY),
+            moved_back_recent: state
+                .moved_back_at
+                .is_some_and(|t| t.elapsed() < MOVED_BACK_MEMORY),
+            link_unsteady: link_unsteady(mac_s),
             return_home: crate::utils::app_setting_bool(RETURN_HOME_SETTING).unwrap_or(true),
             advert,
         }
@@ -453,8 +514,13 @@ pub(super) async fn watch_route(
                 return;
             }
             info!(
-                "route: taking the AirPods back ({why}; PC need {:?}, worn {}, other device playing {}, adverts say {:?})",
-                inputs.need, inputs.worn, inputs.peer_streaming, inputs.advert
+                "route: taking the AirPods back ({why}; PC need {:?}, worn {}, other device playing {}, quiet for {:?}, played media lately {}, adverts say {:?})",
+                inputs.need,
+                inputs.worn,
+                inputs.peer_streaming,
+                inputs.peer_quiet_for,
+                inputs.peer_media_recent,
+                inputs.advert
             );
             route.lock().last_verdict = None;
             let _ = command_tx.send((ControlCommandIdentifiers::OwnsConnection, vec![0x01]));

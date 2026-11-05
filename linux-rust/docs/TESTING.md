@@ -88,7 +88,9 @@ AirPods is one `route:` line in the log, with the reason.
 | --- | --- |
 | Play a game on the PC; get a notification on the iPhone | Back on the PC about 3 s after the ding |
 | Sit in a Discord voice channel; get a notification | Back about 3 s after the ding |
-| Play a video on the iPhone, then stop it (nothing playing on the PC) | Back on the PC about 5 s after stopping |
+| Play a video on the iPhone, then stop it (nothing playing on the PC) | Back on the PC about 45 s after stopping |
+| Play something on the PC, then scroll Instagram or Facebook reels on the iPhone for a few minutes | The reels never pause; the log never says `taking the AirPods back` while you scroll |
+| Same, but walk to the edge of the PC's range (the PC's audio cuts out) | The iPhone keeps the AirPods; after a drop the log says `the link to this PC just dropped`, and a reconnect never says `claiming the AirPods` |
 | Same with **Bring AirPods back to this PC** off | Stays on the iPhone until you press play on the PC |
 | Take a phone call while gaming | Stays on the phone for the whole call, then comes back |
 | Let a call or FaceTime ring on the iPhone and end without answering, while gaming or in Discord | Comes back to the PC within a few seconds of the ring ending; the log says `its call is over` |
