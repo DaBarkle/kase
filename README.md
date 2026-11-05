@@ -579,13 +579,18 @@ flatpak run io.github.dabarkle.Kase --debug 2>&1 | tee ~/kase-debug.log
 
 If the AirPods drop the PC halfway through connecting (this can happen when you open the
 case next to your iPhone), the Linux Bluetooth service can get stuck and refuse every new
-connect as busy, from Kase and from your desktop's Bluetooth menu alike. Since 1.2.1 Kase
-spots this and clears it by itself within about 15 seconds; the log says
-`BlueZ is stuck on an old connect`. If it ever stays stuck, restart Bluetooth:
+connect as busy, from Kase and from your desktop's Bluetooth menu alike. Switching
+Bluetooth off and on doesn't clear it, but restarting the service does. Kase first tries
+to clear the stuck connect itself. If that doesn't help within about 20 seconds, it shows
+a **Bluetooth is stuck** notification with a **Restart Bluetooth** button. The button asks
+for your password, and the AirPods reconnect by themselves a few seconds later. To do it
+by hand:
 
 ```bash
 sudo systemctl restart bluetooth
 ```
+
+This is a bug in BlueZ itself; see [#74](https://github.com/DaBarkle/kase/issues/74) for details and the upstream report.
 
 </details>
 

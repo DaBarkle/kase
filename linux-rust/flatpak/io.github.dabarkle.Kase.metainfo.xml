@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.2.3" date="2026-11-06">
+      <description>
+        <p>When Bluetooth gets stuck and refuses to connect your AirPods, Kase offers a one-click Restart Bluetooth, then reconnects them by itself.</p>
+      </description>
+    </release>
     <release version="1.2.2" date="2026-11-06">
       <description>
         <p>The PC no longer takes the AirPods off your iPhone at the edge of its Bluetooth range or between short videos in a feed.</p>
