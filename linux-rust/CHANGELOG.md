@@ -9,12 +9,13 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 ## [1.2.1] - 2026-11-06
 
 ### Fixed
-- **AirPods no longer stay off the PC after a connection drops halfway.** If the link
-  dropped while BlueZ was still connecting, BlueZ kept the unfinished work and refused every
-  later connect as busy, from Kase and from any other app, until the Bluetooth service was
-  restarted. The case card showed for a moment and went away, and opening the lid again did
-  nothing. Kase now spots this and clears it with an ordinary Disconnect, which needs no
-  root, then connects again. ([#70])
+- **AirPods no longer stay off the PC after a connection drops halfway.** After the link
+  dropped while BlueZ was still connecting, BlueZ refused every later connect as busy,
+  without trying the radio, until the Bluetooth service was restarted. The case card showed
+  for a moment and went away, and opening the lid again did nothing. Kase now spots this and
+  sends BlueZ an ordinary Disconnect, which needs no root, then connects again. This hasn't
+  yet run against a stuck BlueZ on real AirPods. ([#70])
+- **The log now says why each connection dropped.** ([#70])
 
 ## [1.2.0] - 2026-11-02
 
