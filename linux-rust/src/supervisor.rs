@@ -168,6 +168,61 @@ pub enum Kick {
     Disconnected(Address, DropReason),
     /// Someone is at the PC again: the screen was unlocked or the session stopped idling.
     UserActive,
+    /// How a connect asked by the supervisor ended.
+    ConnectEnded(Address, ConnectEnd),
+}
+
+/// How BlueZ answered a `Device1.Connect`, as far as getting stuck is concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectEnd {
+    /// The link dropped while BlueZ was still connecting the profiles.
+    Canceled,
+    /// BlueZ refused: it believes a connect is already running.
+    Busy,
+    Other,
+}
+
+impl ConnectEnd {
+    fn parse(error: &str) -> Self {
+        if error.contains("br-connection-canceled") {
+            Self::Canceled
+        } else if error.contains("br-connection-busy") {
+            Self::Busy
+        } else {
+            Self::Other
+        }
+    }
+}
+
+/// Spots BlueZ stuck on a connect that is long gone. Seen once, 2026-11-05: the link dropped
+/// during an A2DP Open (`br-connection-canceled`), then every connect was refused as busy for
+/// minutes, even across an adapter power cycle, until bluetoothd restarted. BlueZ refuses when
+/// its list of profiles to connect or its service browse is still set; which one stuck is unknown.
+#[derive(Debug, Default, Clone, Copy)]
+struct ConnectTrouble {
+    canceled: bool,
+    busy_since: Option<Instant>,
+}
+
+impl ConnectTrouble {
+    /// Notes how a connect ended; true when BlueZ is stuck and needs clearing.
+    fn stuck_after(&mut self, end: ConnectEnd, now: Instant) -> bool {
+        match end {
+            ConnectEnd::Canceled => {
+                self.canceled = true;
+                self.busy_since = None;
+                false
+            }
+            ConnectEnd::Busy => {
+                let since = *self.busy_since.get_or_insert(now);
+                self.canceled || now.saturating_duration_since(since) >= BUSY_STUCK_AFTER
+            }
+            ConnectEnd::Other => {
+                *self = Self::default();
+                false
+            }
+        }
+    }
 }
 
 struct SupervisorCtx {
@@ -212,6 +267,9 @@ struct AdapterState_ {
     away: HashMap<Address, Away>,
     /// Why BlueZ last dropped each device, until it connects again.
     drop_reason: HashMap<Address, DropReason>,
+    connect_trouble: HashMap<Address, ConnectTrouble>,
+    /// When Kase itself last called Disconnect to clear a stuck connect.
+    cleared_at: HashMap<Address, Instant>,
     /// The PC is going to sleep: no new device sessions until it wakes.
     asleep: bool,
 }
@@ -335,6 +393,20 @@ impl AdapterState_ {
         }
     }
 
+    /// A link closed by [`clear_stuck_connect`] looks like a Disconnect pressed here, which
+    /// would stop reconnects for good.
+    fn real_drop_reason(&self, addr: Address, reason: DropReason) -> DropReason {
+        let ours = self
+            .cleared_at
+            .get(&addr)
+            .is_some_and(|t| t.elapsed() < CLEARED_DROP_WINDOW);
+        if reason == DropReason::Local && ours {
+            DropReason::Remote
+        } else {
+            reason
+        }
+    }
+
     /// AirPods due another background connect attempt.
     fn due(&self) -> Vec<Address> {
         // Paging competes with game traffic for the radio, so no quick retries behind a
@@ -407,6 +479,10 @@ const SLOW_RECONNECT_INTERVAL: Duration = Duration::from_secs(60);
 /// The least time between two attempts, whatever asks for them (adverts, the user coming
 /// back, the sweep): BlueZ refuses a connect while the previous one is still paging.
 const MIN_RECONNECT_GAP: Duration = Duration::from_secs(5);
+/// BlueZ refusing connects for this long is no page in progress: those give up in about 8 s.
+const BUSY_STUCK_AFTER: Duration = Duration::from_secs(15);
+/// How long after clearing a stuck connect a local drop is still put down to Kase.
+const CLEARED_DROP_WINDOW: Duration = Duration::from_secs(5);
 /// Upper bound on waiting for a cancelled device task to finish.
 const TASK_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 /// Upper bound on one pass over BlueZ's devices. A D-Bus call that never answers must not
@@ -618,9 +694,20 @@ async fn run_adapter(adapter: &Adapter, ctx: &mut SupervisorCtx) {
                 for k in kicks {
                     match k {
                         Kick::BleSeen(addr, true) => {
-                            maybe_reconnect(adapter, addr, &mut st).await;
+                            maybe_reconnect(adapter, addr, &mut st, &ctx.kick_tx).await;
+                        }
+                        Kick::ConnectEnded(addr, end) => {
+                            let stuck = st
+                                .connect_trouble
+                                .entry(addr)
+                                .or_default()
+                                .stuck_after(end, Instant::now());
+                            if stuck {
+                                clear_stuck_connect(adapter, addr, &mut st, &ctx.kick_tx).await;
+                            }
                         }
                         Kick::Disconnected(addr, reason) => {
+                            let reason = st.real_drop_reason(addr, reason);
                             st.drop_reason.insert(addr, reason);
                             if !st.running.contains_key(&addr) {
                                 st.plan_reconnect(addr, false);
@@ -633,7 +720,7 @@ async fn run_adapter(adapter: &Adapter, ctx: &mut SupervisorCtx) {
                 if everyone {
                     let away: Vec<Address> = st.away.keys().copied().collect();
                     for addr in away {
-                        maybe_reconnect(adapter, addr, &mut st).await;
+                        maybe_reconnect(adapter, addr, &mut st, &ctx.kick_tx).await;
                     }
                 }
             }
@@ -657,7 +744,7 @@ async fn run_adapter(adapter: &Adapter, ctx: &mut SupervisorCtx) {
                     st.settle_kept(bounded(adapter.is_powered()).await == Some(true), false);
                 }
                 for addr in st.due() {
-                    maybe_reconnect(adapter, addr, &mut st).await;
+                    maybe_reconnect(adapter, addr, &mut st, &ctx.kick_tx).await;
                 }
             }
         }
@@ -688,7 +775,12 @@ async fn run_adapter(adapter: &Adapter, ctx: &mut SupervisorCtx) {
 /// the user comes back to the PC. Connecting doesn't take the audio from an iPhone that is
 /// playing; it only lets this PC take over when the iPhone lets go. Only for AirPods that
 /// dropped off this PC, never ones the user disconnected here.
-async fn maybe_reconnect(adapter: &Adapter, addr: Address, st: &mut AdapterState_) {
+async fn maybe_reconnect(
+    adapter: &Adapter,
+    addr: Address,
+    st: &mut AdapterState_,
+    kick_tx: &UnboundedSender<Kick>,
+) {
     if st.asleep || st.running.contains_key(&addr) {
         return;
     }
@@ -714,13 +806,53 @@ async fn maybe_reconnect(adapter: &Adapter, addr: Address, st: &mut AdapterState
         return;
     }
     info!("Reconnecting to AirPods {}", addr);
+    let kick_tx = kick_tx.clone();
     tokio::spawn(async move {
-        match tokio::time::timeout(Duration::from_secs(15), device.connect()).await {
-            Ok(Ok(())) => info!("Reconnected {}", addr),
-            Ok(Err(e)) => info!("Reconnect to {} failed: {}", addr, e),
-            Err(_) => info!("Reconnect to {} timed out", addr),
-        }
+        let end = match tokio::time::timeout(Duration::from_secs(15), device.connect()).await {
+            Ok(Ok(())) => {
+                info!("Reconnected {}", addr);
+                ConnectEnd::Other
+            }
+            Ok(Err(e)) => {
+                info!("Reconnect to {} failed: {}", addr, e);
+                ConnectEnd::parse(&e.to_string())
+            }
+            Err(_) => {
+                info!("Reconnect to {} timed out", addr);
+                ConnectEnd::Other
+            }
+        };
+        let _ = kick_tx.send(Kick::ConnectEnded(addr, end));
     });
+}
+
+/// Frees BlueZ from a connect that is long gone ([`ConnectTrouble`]). `Device1.Disconnect`
+/// cancels the browse and empties the list of profiles to connect, and it needs no root. It
+/// would close a link that is up, so check there is none, then connect again straight away.
+async fn clear_stuck_connect(
+    adapter: &Adapter,
+    addr: Address,
+    st: &mut AdapterState_,
+    kick_tx: &UnboundedSender<Kick>,
+) {
+    st.connect_trouble.remove(&addr);
+    let Ok(device) = adapter.device(addr) else {
+        return;
+    };
+    if bounded(device.is_connected()).await != Some(false) {
+        return;
+    }
+    warn!("BlueZ is stuck on an old connect to {addr}; clearing it");
+    st.cleared_at.insert(addr, Instant::now());
+    if bounded(device.disconnect()).await.is_none() {
+        warn!("BlueZ did not answer clearing the connect to {addr}");
+    }
+    if let Some(away) = st.away.get_mut(&addr) {
+        away.last_try = None;
+    }
+    if !busy_elsewhere(addr) {
+        maybe_reconnect(adapter, addr, st, kick_tx).await;
+    }
 }
 
 async fn watch_device(
@@ -963,6 +1095,72 @@ mod tests {
         st.settle_kept(false, false);
         assert!(st.kept_away.is_empty() && st.pending_keep.is_empty());
         assert!(!st.kept_path.exists());
+    }
+
+    #[test]
+    fn busy_right_after_a_canceled_connect_is_stuck_at_once() {
+        let now = Instant::now();
+        let mut trouble = ConnectTrouble::default();
+        assert!(!trouble.stuck_after(ConnectEnd::Canceled, now));
+        assert!(trouble.stuck_after(ConnectEnd::Busy, now));
+    }
+
+    #[test]
+    fn busy_alone_is_stuck_only_once_no_page_could_still_be_running() {
+        let now = Instant::now();
+        let mut trouble = ConnectTrouble::default();
+        assert!(!trouble.stuck_after(ConnectEnd::Busy, now));
+        assert!(!trouble.stuck_after(ConnectEnd::Busy, now + Duration::from_secs(8)));
+        assert!(trouble.stuck_after(ConnectEnd::Busy, now + BUSY_STUCK_AFTER));
+    }
+
+    #[test]
+    fn any_other_answer_means_bluez_is_not_stuck() {
+        let now = Instant::now();
+        let mut trouble = ConnectTrouble::default();
+        trouble.stuck_after(ConnectEnd::Canceled, now);
+        trouble.stuck_after(ConnectEnd::Other, now);
+        assert!(!trouble.stuck_after(ConnectEnd::Busy, now + Duration::from_secs(1)));
+        assert!(!trouble.stuck_after(ConnectEnd::Busy, now + Duration::from_secs(8)));
+    }
+
+    #[test]
+    fn connect_errors_are_read_from_what_bluez_says() {
+        for (error, end) in [
+            (
+                "Bluetooth operation failed: br-connection-canceled",
+                ConnectEnd::Canceled,
+            ),
+            (
+                "Bluetooth operation in progress: br-connection-busy",
+                ConnectEnd::Busy,
+            ),
+            (
+                "Bluetooth operation failed: br-connection-page-timeout",
+                ConnectEnd::Other,
+            ),
+        ] {
+            assert_eq!(ConnectEnd::parse(error), end);
+        }
+    }
+
+    #[test]
+    fn clearing_a_stuck_connect_is_not_taken_for_a_disconnect_pressed_here() {
+        let addr: Address = "CC:22:FE:24:0C:70".parse().unwrap();
+        let mut st = kept_state("cleared-drop");
+        assert_eq!(
+            st.real_drop_reason(addr, DropReason::Local),
+            DropReason::Local
+        );
+        st.cleared_at.insert(addr, Instant::now());
+        assert_eq!(
+            st.real_drop_reason(addr, DropReason::Local),
+            DropReason::Remote
+        );
+        assert_eq!(
+            st.real_drop_reason(addr, DropReason::Timeout),
+            DropReason::Timeout
+        );
     }
 
     #[test]

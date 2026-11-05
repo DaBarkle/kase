@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.2.1" date="2026-11-06">
+      <description>
+        <p>AirPods reconnect by themselves when the Bluetooth service gets stuck after a connection drops halfway, instead of staying off the PC until it is restarted.</p>
+      </description>
+    </release>
     <release version="1.2.0" date="2026-11-02">
       <description>
         <p>The window grows out of a pill like the island, with no titlebar, and changes height to fit each tab. Closing it folds it back into the pill.</p>

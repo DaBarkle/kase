@@ -139,7 +139,7 @@ async fn run(kick_tx: UnboundedSender<Kick>) -> Result<(), dbus::Error> {
             let Some(addr) = msg.path().and_then(|p| address_from_path(&p)) else {
                 return true;
             };
-            debug!("{addr} disconnected: {reason} ({message})");
+            info!("{addr} disconnected: {reason} ({message})");
             let _ = kick_tx.send(Kick::Disconnected(addr, DropReason::parse(&reason)));
             true
         });
