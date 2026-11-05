@@ -881,8 +881,9 @@ fn restart_due(clears: u32, offered: bool) -> bool {
 /// BlueZ's audio (A2DP) half is the one stuck when clearing can't help. Seen 2026-11-05
 /// 14:23 UTC: after `No reply to SetConfiguration request`, every connect logged `a2dp-sink
 /// profile connect failed: Device or resource busy`. BlueZ 5.87's `sink_connect` refuses
-/// while the sink's `connect_id` is set, and that id is only cleared by the A2DP setup's own
-/// callback, which never came, or by the service being freed. `Device1.Disconnect` and an
+/// while the sink has a setup pending (`connect_id`) or is still in its CONNECTING state,
+/// and neither was cleared after the link dropped (compare BlueZ #2381, a stale CONNECTING
+/// state, fixed after 5.87). `Device1.Disconnect` and an
 /// adapter power cycle both left it set (01:26 local, Plasma's toggle); restarting
 /// bluetoothd cleared it at once. So ask the user, with one button, to restart Bluetooth
 /// (the system password prompt), never without asking.
