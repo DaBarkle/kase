@@ -332,8 +332,15 @@ pub(super) async fn handle_event(
             // The AirPods send stem holds to the host they mark active, which can stay the
             // iPhone while this PC plays (seen 2026-11-01 after a restart: the left hold
             // changed noise mode). Claiming them moves the mark here.
+            // Only while this PC really plays and the other device is neither playing nor
+            // on a call: right after a reconnect at the edge of range this claim used to
+            // pull the AirPods off an iPhone video (2026-11-05) and even a call (2026-11-02).
+            let peer_busy = aacp.state.lock().await.peer_streaming || route.lock().call;
             if owns_audio(&ctx.hub, &mac_s) == Some(true)
                 && super::alongside::active_elsewhere(new_devices, &local)
+                && route.lock().local_playing
+                && !peer_busy
+                && !super::route::link_unsteady(&mac_s)
                 && route
                     .lock()
                     .claimed_at
@@ -433,7 +440,7 @@ pub(super) async fn handle_event(
         }
         AACPEvent::PeerStreaming(streaming) => {
             if *streaming {
-                route.peer_playing();
+                route.peer_media();
                 // Playing media is not a borrow, whatever the switch first looked like.
                 route.lock().lost_to_borrow = false;
             } else {

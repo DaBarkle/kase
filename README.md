@@ -189,13 +189,19 @@ Pick how much of the island you want to see in the **Island** tab:
 
 Your PC is home. When your iPhone plays something, it gets the AirPods: Kase pauses what's
 playing here and the island shows **Playing on iPhone**, while the AirPods stay connected.
-A few seconds after the iPhone stops, they come back to the PC by themselves, even if
-you're in another room. Press play in any app on the PC, or **Use on this PC** in the
+After the iPhone stops, they come back to the PC by themselves, even if you're in another
+room: about 5 seconds after a notification or a song you picked, and about 45 seconds after a
+video, so scrolling a feed of short videos (Instagram, Facebook, TikTok) isn't cut off between
+clips. If you move them back to the iPhone, Kase leaves them there until it has been quiet for
+2 minutes. Press play in any app on the PC, or **Use on this PC** in the
 window, and they come back straight away.
 
 While you game, watch something or sit in a Discord call, a notification on your phone
 only borrows the AirPods for its sound; they're back on the PC about three seconds later.
-A phone call is never interrupted. If you'd rather the AirPods stay on the iPhone until you
+A phone call is never interrupted. At the edge of the PC's Bluetooth range, where the link
+keeps dropping, Kase never pulls the AirPods back to the PC by itself: after a drop it waits
+3 minutes of steady link first, and a reconnect never takes them off an iPhone that's playing
+or on a call. If you'd rather the AirPods stay on the iPhone until you
 press play on the PC, as with a Mac, turn off **Bring AirPods back to this PC** in Settings.
 
 When the AirPods leave the PC, for the iPhone or for the day, Kase keeps looking for them.

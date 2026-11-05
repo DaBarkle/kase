@@ -40,6 +40,12 @@ pub(super) struct Inputs {
     pub fresh_play: bool,
     /// We stopped taking them back for a while (see `RouteState::backoff_until`).
     pub backing_off: bool,
+    /// The other device played media (a video, music) in the last few minutes.
+    pub peer_media_recent: bool,
+    /// The other device took them straight back after this PC took them, not long ago.
+    pub moved_back_recent: bool,
+    /// The link to this PC dropped a moment ago (the edge of range).
+    pub link_unsteady: bool,
     /// The "Bring my AirPods back to this PC" setting.
     pub return_home: bool,
     /// A second opinion from the AirPods' own adverts: what they say the other device is
@@ -63,6 +69,14 @@ pub(super) enum Verdict {
 pub(super) const BORROW_TAKEBACK: Duration = Duration::from_secs(3);
 /// The other device stopped playing: give it a moment in case the next video starts.
 pub(super) const QUIET_TAKEBACK: Duration = Duration::from_secs(5);
+/// The other device was playing media: a feed of short videos (Instagram, Facebook reels)
+/// says "stopped" between videos and sometimes takes a few seconds to say "playing" again,
+/// so it must be quiet this long before it counts as done (2026-11-05: 9 take-backs in
+/// half an hour at 5 s, each one pausing the video on the iPhone).
+pub(super) const MEDIA_QUIET_TAKEBACK: Duration = Duration::from_secs(45);
+/// The other device took them straight back after this PC did: the user wants them
+/// there, so only a long quiet spell brings them home.
+pub(super) const MOVED_BACK_QUIET_TAKEBACK: Duration = Duration::from_secs(2 * 60);
 /// The other device took them without playing anything (picked in Control Centre, or a
 /// notification while nothing played here): return home if it still plays nothing.
 pub(super) const IDLE_TAKEBACK: Duration = Duration::from_secs(10);
@@ -93,6 +107,9 @@ pub(super) fn decide(i: &Inputs) -> Verdict {
     if i.backing_off {
         return Verdict::Wait("they were moved back to the other device; leaving them there");
     }
+    if i.link_unsteady {
+        return Verdict::Wait("the link to this PC just dropped; waiting for it to hold");
+    }
     if let Some((Activity::Music, steady)) = i.advert
         && steady < ADVERT_MUSIC_HOLD
     {
@@ -115,7 +132,14 @@ pub(super) fn decide(i: &Inputs) -> Verdict {
             auto: true,
         };
     }
-    if quiet.is_some_and(|q| q >= QUIET_TAKEBACK) {
+    let quiet_needed = if i.moved_back_recent {
+        MOVED_BACK_QUIET_TAKEBACK
+    } else if i.peer_media_recent {
+        MEDIA_QUIET_TAKEBACK
+    } else {
+        QUIET_TAKEBACK
+    };
+    if quiet.is_some_and(|q| q >= quiet_needed) {
         if i.need >= Need::Playing {
             return Verdict::Take {
                 why: "the other device went quiet and this PC is using audio",
@@ -161,6 +185,9 @@ mod tests {
             need: Need::Nothing,
             fresh_play: false,
             backing_off: false,
+            peer_media_recent: false,
+            moved_back_recent: false,
+            link_unsteady: false,
             return_home: true,
             advert: None,
         }
@@ -366,5 +393,82 @@ mod tests {
         assert!(!takes(&i));
         i.advert = Some((Activity::Idle, QUIET_TAKEBACK));
         assert!(takes(&i));
+    }
+    #[test]
+    fn a_gap_between_reels_on_the_iphone_is_not_the_end_of_the_feed() {
+        // 2026-11-05: scrolling reels on the iPhone while a game played here. The iPhone
+        // says "stopped" between reels; 5 s later the PC took the AirPods and the reel on
+        // the iPhone paused. Nine times in half an hour.
+        let mut i = Inputs {
+            need: Need::Playing,
+            peer_media_recent: true,
+            peer_quiet_for: Some(QUIET_TAKEBACK),
+            lost_for: Some(S(120)),
+            ..base()
+        };
+        assert_eq!(
+            decide(&i),
+            Verdict::Wait("waiting for the other device to go quiet")
+        );
+        i.peer_quiet_for = Some(S(30));
+        assert!(!takes(&i));
+        // Really done with the feed: home, as before.
+        i.peer_quiet_for = Some(MEDIA_QUIET_TAKEBACK);
+        assert!(takes(&i));
+        // The adverts saying nobody plays wait just as long.
+        let advert = Inputs {
+            peer_quiet_for: None,
+            advert: Some((Activity::Idle, QUIET_TAKEBACK)),
+            ..i
+        };
+        assert!(!takes(&advert));
+        // A press of play here still takes them at once.
+        let pressed = Inputs {
+            peer_quiet_for: Some(S(1)),
+            fresh_play: true,
+            ..i
+        };
+        assert!(takes(&pressed));
+    }
+
+    #[test]
+    fn moved_back_by_the_iphone_needs_a_long_quiet_spell() {
+        let mut i = Inputs {
+            need: Need::Playing,
+            peer_media_recent: true,
+            moved_back_recent: true,
+            peer_quiet_for: Some(MEDIA_QUIET_TAKEBACK),
+            ..base()
+        };
+        assert!(!takes(&i));
+        i.peer_quiet_for = Some(MOVED_BACK_QUIET_TAKEBACK);
+        assert!(takes(&i));
+    }
+
+    #[test]
+    fn no_automatic_take_back_while_the_link_keeps_dropping() {
+        // The edge of range: the PC can barely hear the AirPods, the iPhone in hand can.
+        let i = Inputs {
+            lost_to_borrow: true,
+            lost_for: Some(S(60)),
+            peer_quiet_for: Some(S(600)),
+            need: Need::Voice,
+            link_unsteady: true,
+            ..base()
+        };
+        assert_eq!(
+            decide(&i),
+            Verdict::Wait("the link to this PC just dropped; waiting for it to hold")
+        );
+        // Pressing play here is still a clear ask.
+        assert!(takes(&Inputs {
+            fresh_play: true,
+            ..i
+        }));
+        // Steady again: back to the usual rules.
+        assert!(takes(&Inputs {
+            link_unsteady: false,
+            ..i
+        }));
     }
 }

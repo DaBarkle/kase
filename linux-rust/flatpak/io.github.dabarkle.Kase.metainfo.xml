@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.2.2" date="2026-11-06">
+      <description>
+        <p>The PC no longer takes the AirPods off your iPhone at the edge of its Bluetooth range or between short videos in a feed.</p>
+      </description>
+    </release>
     <release version="1.2.1" date="2026-11-06">
       <description>
         <p>AirPods reconnect by themselves when the Bluetooth service gets stuck after a connection drops halfway, instead of staying off the PC until it is restarted.</p>
