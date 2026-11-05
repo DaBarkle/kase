@@ -194,10 +194,10 @@ impl ConnectEnd {
     }
 }
 
-/// Spots BlueZ stuck on a connect that is long gone. When the link drops mid-connect BlueZ
-/// answers the caller (`br-connection-canceled`) but keeps its list of profiles to connect,
-/// then refuses every later connect as busy, from any app, until bluetoothd restarts (seen
-/// 2026-11-05: the AirPods stayed off the PC with the lid open until a manual restart).
+/// Spots BlueZ stuck on a connect that is long gone. Seen once, 2026-11-05: the link dropped
+/// during an A2DP Open (`br-connection-canceled`), then every connect was refused as busy for
+/// minutes, even across an adapter power cycle, until bluetoothd restarted. BlueZ refuses when
+/// its list of profiles to connect or its service browse is still set; which one stuck is unknown.
 #[derive(Debug, Default, Clone, Copy)]
 struct ConnectTrouble {
     canceled: bool,
@@ -826,9 +826,9 @@ async fn maybe_reconnect(
     });
 }
 
-/// Frees BlueZ from a connect that is long gone ([`ConnectTrouble`]). `Device1.Disconnect` is
-/// the one call that empties its list of profiles to connect, and it needs no root. With no
-/// link up it touches nothing else, so check that first and connect again straight away.
+/// Frees BlueZ from a connect that is long gone ([`ConnectTrouble`]). `Device1.Disconnect`
+/// cancels the browse and empties the list of profiles to connect, and it needs no root. It
+/// would close a link that is up, so check there is none, then connect again straight away.
 async fn clear_stuck_connect(
     adapter: &Adapter,
     addr: Address,
