@@ -131,6 +131,9 @@ const SPIN_AGAIN_AFTER: Duration = Duration::from_secs(6 * 3600);
 const CASE_CARD_LID_SHUT: Duration = Duration::from_millis(1500);
 /// How long the case card stays after both pods are put away.
 const CASE_CARD_PUT_AWAY: Duration = Duration::from_secs(3);
+/// Live, how long the card waits with both pods back in the open case for the lid to
+/// shut (people close it 3 to 7 s later; the close then plays and the card folds).
+const CASE_CARD_PUT_AWAY_LIVE: Duration = Duration::from_secs(15);
 /// A presentation stays at least this long before a different one replaces it.
 pub const MIN_DISPLAY: Duration = Duration::from_millis(1200);
 /// An open card stays at least this long after its last change.
@@ -212,6 +215,10 @@ pub struct Controller {
     last_spin: Option<Instant>,
     /// The case card follows the case live (setting on, clips installed).
     live: bool,
+    /// The AirPods dropped the link as the lid shut on both pods: the card shows this
+    /// last state (lid closed) until the instant, so the close plays instead of the card
+    /// vanishing.
+    case_goodbye: Option<(OverlayState, Instant)>,
 }
 
 impl Controller {
@@ -257,6 +264,7 @@ impl Controller {
             case_clip: Clip::Open,
             last_spin: None,
             live,
+            case_goodbye: None,
         }
     }
 
@@ -493,6 +501,39 @@ impl Controller {
         if live && live_card && (case_moved || just_connected) {
             ev = Some(Content::Expanded);
         }
+        // The link dropped as the lid shut on both pods (the AirPods often say nothing
+        // else): play the close on the card instead of letting it vanish.
+        let seated_shut = |s: &OverlayState| {
+            s.case_state.is_some_and(|c| {
+                use kase::overlay_protocol::Pod::Seated;
+                c.lid == kase::overlay_protocol::Lid::Closed
+                    && c.left == Seated
+                    && c.right == Seated
+            })
+        };
+        let was_open = prev.as_ref().is_some_and(|p| {
+            p.connected
+                && p.case_state
+                    .is_some_and(|c| c.lid != kase::overlay_protocol::Lid::Closed)
+        });
+        if self.live && card_ok && !state.connected && was_open && seated_shut(&state) {
+            if let Some(p) = prev.as_ref() {
+                log::info!("island: link dropped as the lid shut; playing the close");
+                let until = now + CASE_CARD_LID_SHUT;
+                self.case_goodbye = Some((
+                    OverlayState {
+                        connected: true,
+                        in_case: true,
+                        case_state: state.case_state,
+                        ..p.clone()
+                    },
+                    until,
+                ));
+                crate::island::hold_art(Some(until));
+            }
+        } else if state.connected {
+            self.case_goodbye = None;
+        }
         if !state.connected {
             self.pop = None;
             self.queued = None;
@@ -538,6 +579,32 @@ impl Controller {
                     let hold = (case_card && lid_shut).then(|| now + CASE_CARD_LID_SHUT);
                     crate::island::hold_art(hold);
                 }
+                let both_in_open = state.case_state.is_some_and(|c| {
+                    use kase::overlay_protocol::Pod::Seated;
+                    c.lid == kase::overlay_protocol::Lid::Open
+                        && c.left == Seated
+                        && c.right == Seated
+                });
+                // The last pod just went back in (not a lid opening over both).
+                let pod_was_out = prev.as_ref().and_then(|p| p.case_state).is_some_and(|c| {
+                    use kase::overlay_protocol::Pod::Out;
+                    c.left == Out || c.right == Out
+                });
+                let live_put_away =
+                    live && case_card && !just_connected && both_in_open && pod_was_out;
+                if live && case_card {
+                    log::info!(
+                        "island: case card for {:?}{}",
+                        state.case_state.map(|c| (c.lid, c.left, c.right)),
+                        if lid_shut {
+                            ", playing the close"
+                        } else if live_put_away {
+                            ", waiting for the lid"
+                        } else {
+                            ""
+                        }
+                    );
+                }
                 if case_card && let Some((_, until)) = &mut self.pop {
                     *until = now
                         + if live {
@@ -545,6 +612,8 @@ impl Controller {
                             // last change.
                             if lid_shut {
                                 CASE_CARD_LID_SHUT
+                            } else if live_put_away {
+                                CASE_CARD_PUT_AWAY_LIVE
                             } else {
                                 CASE_CARD
                             }
@@ -571,6 +640,11 @@ impl Controller {
     /// What to draw: the real state, or during a preview without data a placeholder
     /// (dashes), so the user can always see where the island sits.
     pub fn display_state(&self, now: Instant) -> Option<OverlayState> {
+        if let Some((s, until)) = &self.case_goodbye
+            && now < *until
+        {
+            return Some(s.clone());
+        }
         match &self.state {
             Some(s) if s.connected || !self.previewing(now) => Some(s.clone()),
             Some(s) => Some(OverlayState {
@@ -592,6 +666,9 @@ impl Controller {
         }
         if self.farewell_until.is_some_and(|t| now < t) {
             return Some(Content::Alert(Alert::Disconnected));
+        }
+        if self.case_goodbye.as_ref().is_some_and(|(_, t)| now < *t) {
+            return Some(Content::Expanded);
         }
         if !self.state.as_ref().is_some_and(|s| s.connected) {
             return None;
@@ -677,6 +754,9 @@ impl Controller {
         }
         if self.farewell_until.is_some_and(|t| now >= t) {
             self.farewell_until = None;
+        }
+        if self.case_goodbye.as_ref().is_some_and(|(_, t)| now >= *t) {
+            self.case_goodbye = None;
         }
         if self.preview_until.is_some_and(|t| now >= t) {
             self.preview_until = None;

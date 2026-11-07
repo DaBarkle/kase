@@ -129,7 +129,9 @@ lifts out (turning once and hovering beside the case) the moment you take it, dr
 into its well when you return it, and the lid closes when you close it, even over a pod
 still in your ear. On the first open of the day the closed case first turns a full
 circle. The card comes back for every change while the case is in play and folds away
-6 seconds after the last one (1.5 seconds after the lid shuts). Turn this off with
+6 seconds after the last one. With both pods back in, it waits up to 15 seconds for the
+lid, plays it closing within half a second of you shutting it, and folds 1.5 seconds later,
+even when the AirPods drop the PC as the lid shuts. Turn this off with
 **Follow the case live** in the Island tab to get the earlier fixed clips instead.
 Everything plays at your monitor's refresh rate (just the last frame with **Reduce
 motion**), and the AirPods tab shows the case open or closed to match. Closing the lid
@@ -473,7 +475,8 @@ flowchart LR
    window, tray and island all draw from it, so they never disagree.
 3. **The live case.** The AirPods report each pod as "first" or "second", not left or
    right, and which one is first changes as you use them. Kase reads the order of each
-   battery report to tell them apart, and the BLE adverts give the lid. A small state
+   battery report to tell them apart. The BLE adverts give the lid within half a second
+   (only a pod sitting in the case knows it) and each pod's place before the link is up. A small state
    machine then plays the 3D case toward that truth: the lid first, then one pod at a
    time, catching up smoothly on anything it missed.
 4. **The island** is a separate small process on the compositor's overlay layer. It only

@@ -10,20 +10,27 @@
 //!   reports on David's PC). An ear report that lands before the battery report of a swap
 //!   is mapped whichever way moves fewer pods, then corrected by the battery order.
 //! * **BLE adverts**, which also work before the control channel is up (the first second
-//!   after the lid opens) and when the AirPods send this PC no ear reports. They lose to
-//!   a recent ear report, because they can lag a real change.
+//!   after the lid opens) and when the AirPods send this PC no ear reports. For the pods
+//!   they lose to a recent ear report, because they can lag a real change, and a change
+//!   needs two adverts in a row that agree.
 //!
-//! The lid is read from both: the advert's lid bit, and from the ear reports themselves:
-//! a pod in the case that turns "disconnected" means the lid just shut on it, the reverse
-//! means it opened, and a pod can only come out of or go into an open case.
+//! The lid comes first from adverts sent by a pod sitting in the case: on 8 Nov 2026 they
+//! showed all 7 lid closes within half a second, while the ear reports said so ~4 s
+//! later or never. The two pods' adverts disagree for ~0.2 s as the lid moves, so the lid
+//! changes once two in a row agree. The ear reports still count as a backup: a pod in
+//! the case that turns "disconnected" means the lid just shut on it, the reverse means it
+//! opened, and a pod can only come out of or go into an open case.
 
 use crate::bluetooth::aacp::{BatteryComponent, BatteryInfo, BatteryStatus, EarDetectionStatus};
 use crate::core::battery::BleBatteryReading;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
-/// After an ear report, adverts can still say the old thing for a moment.
+/// After an ear report, adverts can still say the old thing about the pods for a moment.
 pub const ADVERT_HOLD_OFF: Duration = Duration::from_secs(3);
+/// An advert lid this recent, saying "open", means a link drop was not the lid shutting
+/// (the AirPods went to the iPhone, or out of range).
+pub const LID_SEEN_FRESH: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Lid {
@@ -82,6 +89,12 @@ pub struct CaseTracker {
     /// What each pod last reported, by side, before mapping to `Pod`.
     raw: (Option<EarDetectionStatus>, Option<EarDetectionStatus>),
     last_aacp: Option<Instant>,
+    /// The last lid an advert from a pod in the case said (a change needs two in a row).
+    advert_lid: Option<bool>,
+    /// When an advert from a pod in the case last said the lid was open or shut.
+    lid_seen: Option<(bool, Instant)>,
+    /// The last pods an advert said (left, right in the case), for the same two-in-a-row.
+    advert_pods: Option<(bool, bool)>,
 }
 
 fn place(s: EarDetectionStatus, was: Pod) -> Pod {
@@ -215,43 +228,69 @@ impl CaseTracker {
                 _ => {}
             }
         }
+        // The first report on a new link with a pod in the case: pods in a shut case
+        // don't talk to this PC, so the lid is open (the adverts can take a second).
+        if old_l.is_none()
+            && old_r.is_none()
+            && l != Disconnected
+            && r != Disconnected
+            && (l == InCase || r == InCase)
+        {
+            lid = Lid::Open;
+        }
         next.lid = lid;
         self.raw = (Some(l), Some(r));
         self.commit(next, CaseSource::Aacp)
     }
 
-    /// Takes a decoded advert. Ignored for pods while a recent ear report is in charge.
+    /// Takes a decoded advert. The lid moves once two adverts from pods in the case agree;
+    /// the pods once two adverts agree, the lid is open and no ear report spoke lately.
     pub fn on_advert(&mut self, reading: &BleBatteryReading, now: Instant) -> bool {
         let mut next = self.state;
-        if let Some(open) = reading.lid_open {
-            next.lid = if open { Lid::Open } else { Lid::Closed };
+        if reading.lid_trusted
+            && let Some(open) = reading.lid_open
+        {
+            if self.advert_lid == Some(open) {
+                next.lid = if open { Lid::Open } else { Lid::Closed };
+            }
+            self.advert_lid = Some(open);
+            self.lid_seen = Some((open, now));
         }
+        let pods = (reading.left_in_case, reading.right_in_case);
+        let agreed = self.advert_pods == Some(pods);
+        self.advert_pods = Some(pods);
         let aacp_fresh = self
             .last_aacp
             .is_some_and(|t| now.saturating_duration_since(t) < ADVERT_HOLD_OFF);
-        if !aacp_fresh {
+        // With the lid shut the in-case bits mean something else (a pod drops off).
+        let lid_open = match next.lid {
+            Lid::Open => true,
+            Lid::Closed => false,
+            Lid::Unknown => reading.lid_trusted && reading.lid_open == Some(true),
+        };
+        if agreed && !aacp_fresh && lid_open {
             let pod = |in_case: bool| if in_case { Pod::Seated } else { Pod::Out };
-            next.left = pod(reading.left_in_case);
-            next.right = pod(reading.right_in_case);
-        } else if reading.lid_open.is_some()
-            && next.lid != self.state.lid
-            && self.state.lid != Lid::Unknown
-        {
-            // An ear report just spoke; trust it about the lid too.
-            next.lid = self.state.lid;
+            next.left = pod(pods.0);
+            next.right = pod(pods.1);
         }
         self.commit(next, CaseSource::Advert)
     }
 
     /// The Bluetooth link to this PC is gone.
-    pub fn on_link_lost(&mut self) -> bool {
+    pub fn on_link_lost(&mut self, now: Instant) -> bool {
         self.last_aacp = None;
         self.last_ear = None;
         self.raw = (None, None);
         let mut next = self.state;
+        let seen_open = self
+            .lid_seen
+            .is_some_and(|(open, t)| open && now.saturating_duration_since(t) < LID_SEEN_FRESH);
         if next.left == Pod::Seated && next.right == Pod::Seated {
-            // Both in the case and the link dropped: the lid is shut.
-            next.lid = Lid::Closed;
+            // Both in the case and the link dropped: the lid is shut, unless a pod in the
+            // case just said it is open (the AirPods went elsewhere).
+            if !seen_open {
+                next.lid = Lid::Closed;
+            }
         } else {
             next.left = if next.left == Pod::Seated {
                 Pod::Seated

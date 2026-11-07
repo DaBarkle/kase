@@ -38,7 +38,7 @@ fn battery_alone_places_pods_until_ear_reports_come() {
     let now = Instant::now();
     let mut t = CaseTracker::default();
     t.on_ear(InCase, InCase, now);
-    t.on_link_lost();
+    t.on_link_lost(now);
     assert_eq!(pods(&t), (Lid::Closed, Pod::Seated, Pod::Seated));
     assert!(t.on_battery(&bat(&[(Right, C), (Left, N), (Case, N)]), now));
     assert_eq!(
@@ -104,11 +104,13 @@ fn real_lid_open_and_pods_out() {
         left_in_case: true,
         right_in_case: true,
         lid_open: Some(true),
+        lid_trusted: true,
         ..Default::default()
     };
+    assert!(!t.on_advert(&adv, now), "one advert alone moves nothing");
     assert!(
-        t.on_advert(&adv, now),
-        "the advert opens the lid before the link is up"
+        t.on_advert(&adv, now + Duration::from_millis(200)),
+        "two adverts open the lid before the link is up"
     );
     assert_eq!(pods(&t), (Lid::Open, Pod::Seated, Pod::Seated));
 
@@ -140,14 +142,18 @@ fn ear_reports_wait_for_the_battery_order() {
         "can't tell left from right yet"
     );
     assert!(t.on_battery(&lr_first(false), now));
-    assert_eq!(pods(&t), (Lid::Unknown, Pod::Out, Pod::Seated));
+    assert_eq!(pods(&t), (Lid::Open, Pod::Out, Pod::Seated));
 }
 
 #[test]
 fn matching_pods_need_no_order() {
     let mut t = CaseTracker::default();
     assert!(t.on_ear(InCase, InCase, Instant::now()));
-    assert_eq!(pods(&t), (Lid::Unknown, Pod::Seated, Pod::Seated));
+    assert_eq!(
+        pods(&t),
+        (Lid::Open, Pod::Seated, Pod::Seated),
+        "pods in a shut case don't talk to the PC"
+    );
 }
 
 #[test]
@@ -166,22 +172,31 @@ fn lid_opens_when_a_pod_comes_back_online() {
     assert_eq!(pods(&t), (Lid::Open, Pod::Out, Pod::Seated));
 }
 
+fn advert(
+    left_in_case: bool,
+    right_in_case: bool,
+    lid_open: bool,
+    trusted: bool,
+) -> BleBatteryReading {
+    BleBatteryReading {
+        left_in_case,
+        right_in_case,
+        lid_open: Some(lid_open),
+        lid_trusted: trusted,
+        ..Default::default()
+    }
+}
+
 #[test]
 fn adverts_fill_in_when_ear_reports_are_quiet() {
     let now = Instant::now();
+    let ms = |n| now + Duration::from_millis(n);
     let mut t = CaseTracker::default();
     t.on_battery(&both_charging(), now);
     t.on_ear(InCase, InCase, now);
-    let adv = BleBatteryReading {
-        left_in_case: false,
-        right_in_case: true,
-        lid_open: Some(true),
-        ..Default::default()
-    };
-    assert!(
-        t.on_advert(&adv, now + Duration::from_secs(1)),
-        "the lid bit still counts"
-    );
+    let adv = advert(false, true, true, true);
+    t.on_advert(&adv, ms(1000));
+    t.on_advert(&adv, ms(1200));
     assert_eq!(
         pods(&t),
         (Lid::Open, Pod::Seated, Pod::Seated),
@@ -192,12 +207,69 @@ fn adverts_fill_in_when_ear_reports_are_quiet() {
     assert_eq!(t.state().source, CaseSource::Advert);
 }
 
+/// 8 Nov: the lid shut while ear reports were still repeating; the adverts said so ~4 s
+/// before the AirPods did. It must close at once, not after the ear reports go quiet.
+#[test]
+fn the_lid_shuts_from_adverts_while_ear_reports_flow() {
+    let now = Instant::now();
+    let ms = |n| now + Duration::from_millis(n);
+    let mut t = CaseTracker::default();
+    t.on_battery(&both_charging(), now);
+    t.on_ear(InCase, InCase, now);
+    t.on_advert(&advert(true, true, true, true), ms(100));
+    t.on_advert(&advert(true, true, true, true), ms(200));
+    t.on_ear(InCase, InCase, ms(300));
+    // The two pods disagree for a moment as the lid moves.
+    assert!(!t.on_advert(&advert(true, true, false, true), ms(400)));
+    assert!(!t.on_advert(&advert(true, true, true, true), ms(410)));
+    assert!(!t.on_advert(&advert(true, true, false, true), ms(560)));
+    assert!(t.on_advert(&advert(true, true, false, true), ms(700)));
+    assert_eq!(pods(&t), (Lid::Closed, Pod::Seated, Pod::Seated));
+}
+
+/// A pod in a hand keeps repeating the lid it last heard; only a pod in the case counts.
+#[test]
+fn a_pod_out_of_the_case_has_no_say_about_the_lid() {
+    let now = Instant::now();
+    let ms = |n| now + Duration::from_millis(n);
+    let mut t = CaseTracker::default();
+    for n in [0, 100] {
+        t.on_advert(&advert(true, false, true, true), ms(n));
+    }
+    assert_eq!(pods(&t), (Lid::Open, Pod::Seated, Pod::Out));
+    for n in [200, 300] {
+        t.on_advert(&advert(true, false, false, true), ms(n));
+    }
+    assert_eq!(pods(&t), (Lid::Closed, Pod::Seated, Pod::Out));
+    // The pod in the hand still says "open", and with the lid shut nobody moves pods.
+    for n in [400, 500, 600] {
+        t.on_advert(&advert(false, false, true, false), ms(n));
+    }
+    assert_eq!(pods(&t), (Lid::Closed, Pod::Seated, Pod::Out));
+}
+
+#[test]
+fn a_link_drop_with_the_lid_seen_open_is_not_a_close() {
+    let now = Instant::now();
+    let ms = |n| now + Duration::from_millis(n);
+    let mut t = CaseTracker::default();
+    t.on_ear(InCase, InCase, now);
+    t.on_advert(&advert(true, true, true, true), ms(100));
+    t.on_advert(&advert(true, true, true, true), ms(200));
+    t.on_link_lost(ms(1000));
+    assert_eq!(pods(&t), (Lid::Open, Pod::Seated, Pod::Seated));
+    // Without a fresh advert, a drop with both pods in still means the lid shut.
+    t.on_ear(InCase, InCase, ms(10_000));
+    t.on_link_lost(ms(10_000));
+    assert_eq!(pods(&t), (Lid::Closed, Pod::Seated, Pod::Seated));
+}
+
 #[test]
 fn link_lost_with_both_in_means_the_lid_shut() {
     let now = Instant::now();
     let mut t = CaseTracker::default();
     t.on_ear(InCase, InCase, now);
-    assert!(t.on_link_lost());
+    assert!(t.on_link_lost(now));
     assert_eq!(pods(&t), (Lid::Closed, Pod::Seated, Pod::Seated));
 }
 
@@ -206,7 +278,7 @@ fn link_lost_while_worn_forgets_the_pods() {
     let now = Instant::now();
     let mut t = CaseTracker::default();
     t.on_ear(InEar, InEar, now);
-    t.on_link_lost();
+    t.on_link_lost(now);
     assert_eq!(pods(&t), (Lid::Unknown, Pod::Unknown, Pod::Unknown));
 }
 
@@ -218,7 +290,7 @@ fn seq_counts_changes_only() {
     let seq = t.state().seq;
     t.on_ear(InCase, InCase, now);
     assert_eq!(t.state().seq, seq);
-    t.on_link_lost();
+    t.on_link_lost(now);
     assert_eq!(t.state().seq, seq + 1);
 }
 
@@ -293,7 +365,7 @@ fn replay_of_real_reports_maps_every_pod_correctly() {
                     }
                 }
             }
-            Some("linklost") => changes += usize::from(t.on_link_lost()),
+            Some("linklost") => changes += usize::from(t.on_link_lost(now)),
             _ => {}
         }
     }
@@ -368,4 +440,130 @@ fn real_right_out_with_a_primary_swap_through_the_merged_list() {
     );
     t.on_ear(InEar, InCase, now);
     assert_eq!(pods(&t), (Lid::Open, Pod::Seated, Pod::Out));
+}
+
+/// Replays David's guided test on 8 Nov 2026 (btmon capture: both pods' adverts and every
+/// ear and battery report; 5 rounds, 7 lid closes, 8 pod moves). Before the fix Kase moved
+/// a pod to the wrong side 14 times and heard the lid shut 3.5 to 4.2 s late.
+#[test]
+fn replay_of_the_8_nov_lid_test() {
+    use crate::bluetooth::aacp::merge_battery_info;
+    use crate::bluetooth::le::decode_proximity;
+    let text = include_str!("../../tests/fixtures/lid-test-2026-11-08.txt");
+    let status = |s: &str| match s {
+        "InEar" => InEar,
+        "OutOfEar" => OutOfEar,
+        "InCase" => InCase,
+        _ => Disconnected,
+    };
+    let t0 = Instant::now();
+    let mut t = CaseTracker::default();
+    let mut merged = Vec::new();
+    // What David had done by each step, and the steps themselves.
+    let mut want = (Lid::Closed, Pod::Seated, Pod::Seated);
+    let mut steps = vec![(0u64, want)];
+    let mut changes = Vec::new();
+    for line in text.lines().filter(|l| !l.starts_with('#')) {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let ms: u64 = f[0].parse().unwrap();
+        let at = t0 + Duration::from_millis(ms);
+        let changed = match f[1] {
+            "adv" => {
+                let st = u8::from_str_radix(f[2], 16).unwrap();
+                let lid = u8::from_str_radix(f[3], 16).unwrap();
+                let data = [0x07, 0x19, 0x01, 0x1B, 0x20, st, 0, 0, lid, 0, 0];
+                let reading = decode_proximity(&data, None).unwrap();
+                t.on_advert(&reading, at)
+            }
+            "ear" => t.on_ear(status(f[2]), status(f[3]), at),
+            "bat" => {
+                let info: Vec<BatteryInfo> = f[2..]
+                    .iter()
+                    .map(|c| {
+                        let (comp, st) = c.split_once(':').unwrap();
+                        BatteryInfo {
+                            component: match comp {
+                                "Left" => BatteryComponent::Left,
+                                "Right" => BatteryComponent::Right,
+                                "Case" => BatteryComponent::Case,
+                                _ => BatteryComponent::Headphone,
+                            },
+                            level: 50,
+                            status: match st {
+                                "Charging" => BatteryStatus::Charging,
+                                "NotCharging" => BatteryStatus::NotCharging,
+                                "Disconnected" => BatteryStatus::Disconnected,
+                                _ => BatteryStatus::Unknown,
+                            },
+                        }
+                    })
+                    .collect();
+                merge_battery_info(&mut merged, &info);
+                t.on_battery(&merged, at)
+            }
+            "linklost" => t.on_link_lost(at),
+            "step" => {
+                match f[2] {
+                    "o" => want.0 = Lid::Open,
+                    "c" => want.0 = Lid::Closed,
+                    "r" => want.2 = Pod::Out,
+                    "l" => want.1 = Pod::Out,
+                    "R" => want.2 = Pod::Seated,
+                    "L" => want.1 = Pod::Seated,
+                    _ => {}
+                }
+                steps.push((ms, want));
+                false
+            }
+            _ => false,
+        };
+        if changed {
+            changes.push((ms, pods(&t)));
+        }
+    }
+
+    // Every pod Kase placed matches what David had done just before or just after.
+    let around = |ms: u64| {
+        let i = steps.iter().rposition(|(s, _)| *s <= ms).unwrap();
+        // Steps done in one go share a time: take the last of them.
+        let next = steps.get(i + 1).map_or(steps[i], |n| {
+            *steps.iter().rev().find(|s| s.0 == n.0).unwrap()
+        });
+        (steps[i].1, next.1)
+    };
+    let mut wrong = 0;
+    for &(ms, (_, l, r)) in &changes {
+        let (a, b) = around(ms);
+        let fits = |got: Pod, x: Pod, y: Pod| got == Pod::Unknown || got == x || got == y;
+        if !fits(l, a.1, b.1) || !fits(r, a.2, b.2) {
+            wrong += 1;
+            eprintln!("wrong pod at {ms} ms: L {l:?} R {r:?} (around {a:?} / {b:?})");
+        }
+    }
+    assert_eq!(wrong, 0, "no pod on the wrong side");
+
+    // The lid reads shut by the time David pressed Enter after closing it (the adverts
+    // said so 0.4 to 1 s before), and open halfway to his next step (the AirPods took up
+    // to 2.8 s after his Enter to say the lid opened, and he sometimes shut it again
+    // before his next Enter).
+    let lid_at = |ms: u64| {
+        changes
+            .iter()
+            .rev()
+            .find(|(c, _)| *c <= ms)
+            .map_or(Lid::Unknown, |(_, s)| s.0)
+    };
+    let mut closes = 0;
+    for (i, w) in steps.windows(2).enumerate() {
+        let (ms, after) = w[1];
+        if after.0 != w[0].1.0 {
+            let check = match (after.0, steps.get(i + 2)) {
+                (Lid::Open, Some(&(next, _))) => (ms + next) / 2,
+                _ => ms,
+            };
+            assert_eq!(lid_at(check), after.0, "lid at {check} ms");
+            closes += usize::from(after.0 == Lid::Closed);
+        }
+    }
+    assert_eq!(closes, 7);
 }
