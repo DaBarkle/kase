@@ -6,6 +6,18 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-08
+
+### Fixed
+- **The case card shows the case again when the AirPods' control channel is silent.**
+  Sometimes the AirPods connect but say nothing on their control channel, so the
+  Bluetooth adverts are Kase's only source. 1.3.0 waited for two matching adverts before
+  it moved the lid or a pod, but Linux's Bluetooth service only passes an advert on when
+  it changes, so the second one often never came. The card then had no case to draw: no
+  lid opening, no pods, no close. An advert that arrives on its own after a quiet spell now
+  counts straight away; only a quick burst of disagreeing adverts, from the two pods while
+  the lid moves, still needs two in a row. ([#76])
+
 ## [1.3.0] - 2026-11-08
 
 ### Fixed
@@ -867,6 +879,7 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#59]: https://github.com/DaBarkle/kase/pull/59
 [#67]: https://github.com/DaBarkle/kase/pull/67
 [#73]: https://github.com/DaBarkle/kase/pull/73
+[#76]: https://github.com/DaBarkle/kase/pull/76
 [#75]: https://github.com/DaBarkle/kase/pull/75
 [#72]: https://github.com/DaBarkle/kase/pull/72
 [#70]: https://github.com/DaBarkle/kase/pull/70

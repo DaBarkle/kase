@@ -12,12 +12,13 @@
 //! * **BLE adverts**, which also work before the control channel is up (the first second
 //!   after the lid opens) and when the AirPods send this PC no ear reports. For the pods
 //!   they lose to a recent ear report, because they can lag a real change, and a change
-//!   needs two adverts in a row that agree.
+//!   needs two adverts in a row that agree, unless it comes alone after a quiet spell
+//!   (BlueZ only passes on an advert that changed, so there may never be a second).
 //!
 //! The lid comes first from adverts sent by a pod sitting in the case: on 8 Nov 2026 they
 //! showed all 7 lid closes within half a second, while the ear reports said so ~4 s
 //! later or never. The two pods' adverts disagree for ~0.2 s as the lid moves, so the lid
-//! changes once two in a row agree. The ear reports still count as a backup: a pod in
+//! changes once two in a row agree (or at once, from a lone advert). The ear reports still count as a backup: a pod in
 //! the case that turns "disconnected" means the lid just shut on it, the reverse means it
 //! opened, and a pod can only come out of or go into an open case.
 
@@ -31,6 +32,12 @@ pub const ADVERT_HOLD_OFF: Duration = Duration::from_secs(3);
 /// An advert lid this recent, saying "open", means a link drop was not the lid shutting
 /// (the AirPods went to the iPhone, or out of range).
 pub const LID_SEEN_FRESH: Duration = Duration::from_secs(3);
+/// Adverts closer together than this are a burst from both pods (raw HCI, or BlueZ
+/// passing both pods' changes), where a change needs two in a row that agree. BlueZ only
+/// passes a pod's advert on when it changes, so a lone advert after a quiet spell is
+/// news to trust as it is: waiting for a second one that never comes (7 Nov 2026, 22:55
+/// UTC on David's PC) left the case card with no lid and no pods at all.
+pub const ADVERT_BURST: Duration = Duration::from_millis(600);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Lid {
@@ -95,6 +102,8 @@ pub struct CaseTracker {
     lid_seen: Option<(bool, Instant)>,
     /// The last pods an advert said (left, right in the case), for the same two-in-a-row.
     advert_pods: Option<(bool, bool)>,
+    /// When the last advert arrived (any advert, from either pod).
+    last_advert: Option<Instant>,
 }
 
 fn place(s: EarDetectionStatus, was: Pod) -> Pod {
@@ -247,17 +256,21 @@ impl CaseTracker {
     /// the pods once two adverts agree, the lid is open and no ear report spoke lately.
     pub fn on_advert(&mut self, reading: &BleBatteryReading, now: Instant) -> bool {
         let mut next = self.state;
+        let lone = self
+            .last_advert
+            .is_none_or(|t| now.saturating_duration_since(t) >= ADVERT_BURST);
+        self.last_advert = Some(now);
         if reading.lid_trusted
             && let Some(open) = reading.lid_open
         {
-            if self.advert_lid == Some(open) {
+            if lone || self.advert_lid == Some(open) {
                 next.lid = if open { Lid::Open } else { Lid::Closed };
             }
             self.advert_lid = Some(open);
             self.lid_seen = Some((open, now));
         }
         let pods = (reading.left_in_case, reading.right_in_case);
-        let agreed = self.advert_pods == Some(pods);
+        let agreed = lone || self.advert_pods == Some(pods);
         self.advert_pods = Some(pods);
         let aacp_fresh = self
             .last_aacp
