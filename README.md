@@ -476,7 +476,8 @@ flowchart LR
 3. **The live case.** The AirPods report each pod as "first" or "second", not left or
    right, and which one is first changes as you use them. Kase reads the order of each
    battery report to tell them apart. The BLE adverts give the lid within half a second
-   (only a pod sitting in the case knows it) and each pod's place before the link is up. A small state
+   (only a pod sitting in the case knows it) and each pod's place before the link is up,
+   or the whole time when the AirPods stay silent on their control channel. A small state
    machine then plays the 3D case toward that truth: the lid first, then one pod at a
    time, catching up smoothly on anything it missed.
 4. **The island** is a separate small process on the compositor's overlay layer. It only

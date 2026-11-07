@@ -107,12 +107,12 @@ fn real_lid_open_and_pods_out() {
         lid_trusted: true,
         ..Default::default()
     };
-    assert!(!t.on_advert(&adv, now), "one advert alone moves nothing");
     assert!(
-        t.on_advert(&adv, now + Duration::from_millis(200)),
-        "two adverts open the lid before the link is up"
+        t.on_advert(&adv, now),
+        "a lone advert opens the lid before the link is up"
     );
     assert_eq!(pods(&t), (Lid::Open, Pod::Seated, Pod::Seated));
+    assert!(!t.on_advert(&adv, now + Duration::from_millis(200)));
 
     let now = now + Duration::from_secs(1);
     t.on_battery(&both_charging(), now);
@@ -131,6 +131,55 @@ fn real_lid_open_and_pods_out() {
     t.on_ear(InCase, InEar, now);
     t.on_ear(OutOfEar, InEar, now);
     assert_eq!(pods(&t), (Lid::Open, Pod::Out, Pod::Out));
+}
+
+/// 7 Nov 22:55 UTC on David's PC: the control channel stayed silent, and BlueZ passed on
+/// each pod's advert only when it changed, seconds apart. Each lone advert must count, or
+/// the card has no case to show.
+#[test]
+fn lone_adverts_count_when_the_control_channel_is_silent() {
+    let t0 = Instant::now();
+    let mut t = CaseTracker::default();
+    let adv = |l: bool, r: bool, open: bool| BleBatteryReading {
+        left_in_case: l,
+        right_in_case: r,
+        lid_open: (l || r).then_some(open),
+        lid_trusted: l || r,
+        ..Default::default()
+    };
+    assert!(t.on_advert(&adv(true, true, true), t0));
+    assert_eq!(pods(&t), (Lid::Open, Pod::Seated, Pod::Seated));
+    assert!(t.on_advert(&adv(false, false, true), t0 + Duration::from_secs(4)));
+    assert_eq!(pods(&t), (Lid::Open, Pod::Out, Pod::Out));
+    assert!(t.on_advert(&adv(true, true, true), t0 + Duration::from_secs(12)));
+    assert_eq!(pods(&t), (Lid::Open, Pod::Seated, Pod::Seated));
+    assert!(t.on_advert(&adv(true, true, false), t0 + Duration::from_secs(15)));
+    assert_eq!(pods(&t), (Lid::Closed, Pod::Seated, Pod::Seated));
+}
+
+/// A burst of disagreeing adverts (the two pods as the lid moves) still needs two in a row.
+#[test]
+fn a_burst_of_disagreeing_adverts_needs_two_in_a_row() {
+    let t0 = Instant::now();
+    let mut t = CaseTracker::default();
+    let adv = |open: bool| BleBatteryReading {
+        left_in_case: true,
+        right_in_case: true,
+        lid_open: Some(open),
+        lid_trusted: true,
+        ..Default::default()
+    };
+    t.on_advert(&adv(true), t0);
+    let ms = |n| t0 + Duration::from_millis(n);
+    assert!(
+        t.on_advert(&adv(false), ms(5000)),
+        "alone after a quiet spell: shut"
+    );
+    assert_eq!(pods(&t).0, Lid::Closed);
+    // Now inside a burst: a single "open" between closed ones does not reopen it.
+    t.on_advert(&adv(false), ms(5100));
+    assert!(!t.on_advert(&adv(true), ms(5200)));
+    assert_eq!(pods(&t).0, Lid::Closed);
 }
 
 #[test]
@@ -447,6 +496,18 @@ fn real_right_out_with_a_primary_swap_through_the_merged_list() {
 /// a pod to the wrong side 14 times and heard the lid shut 3.5 to 4.2 s late.
 #[test]
 fn replay_of_the_8_nov_lid_test() {
+    replay_8_nov(false);
+}
+
+/// The same test as BlueZ hands it to Kase: a pod's advert only when it changed (BlueZ
+/// raises ManufacturerData only on a new value), so two identical adverts in a row from
+/// one pod never arrive.
+#[test]
+fn replay_of_the_8_nov_lid_test_with_only_changed_adverts() {
+    replay_8_nov(true);
+}
+
+fn replay_8_nov(changes_only: bool) {
     use crate::bluetooth::aacp::merge_battery_info;
     use crate::bluetooth::le::decode_proximity;
     let text = include_str!("../../tests/fixtures/lid-test-2026-11-08.txt");
@@ -463,6 +524,8 @@ fn replay_of_the_8_nov_lid_test() {
     let mut want = (Lid::Closed, Pod::Seated, Pod::Seated);
     let mut steps = vec![(0u64, want)];
     let mut changes = Vec::new();
+    // Last advert per pod (told apart by status bit 6, which differs between the two).
+    let mut last_by_pod: std::collections::HashMap<u8, (u8, u8)> = Default::default();
     for line in text.lines().filter(|l| !l.starts_with('#')) {
         let f: Vec<&str> = line.split_whitespace().collect();
         let ms: u64 = f[0].parse().unwrap();
@@ -471,6 +534,9 @@ fn replay_of_the_8_nov_lid_test() {
             "adv" => {
                 let st = u8::from_str_radix(f[2], 16).unwrap();
                 let lid = u8::from_str_radix(f[3], 16).unwrap();
+                if changes_only && last_by_pod.insert(st & 0x40, (st, lid)) == Some((st, lid)) {
+                    continue;
+                }
                 let data = [0x07, 0x19, 0x01, 0x1B, 0x20, st, 0, 0, lid, 0, 0];
                 let reading = decode_proximity(&data, None).unwrap();
                 t.on_advert(&reading, at)
