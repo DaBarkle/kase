@@ -216,7 +216,9 @@ pub fn to_overlay_state(snap: &AppSnapshot) -> Option<OverlayState> {
         }),
         mic_failures: d.mic_failures,
         in_case: d.is_connected() && d.in_case,
-        case_state: d.is_connected().then_some(d.case),
+        // Sent after the link drops too: the island plays the lid shutting when the drop
+        // is how the AirPods tell it.
+        case_state: Some(d.case),
         modes: crate::ui::format::listening_modes(d)
             .iter()
             .filter_map(|m| ListeningMode::from_byte(m.byte()))

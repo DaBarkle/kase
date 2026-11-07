@@ -16,8 +16,13 @@
 //! [len-16..] AES-128-ECB encrypted: [1],[2] pod levels (primary first), [3] case,
 //!            each byte bit7 = charging, bits0-6 = level, 0x7F = unknown.
 //! ```
-//! Status flags ([5]): bit5 = primary pod is left, bit6 = broadcasting pod is in the
-//! case, bit4 = one pod in case, bit2 = both pods in case, bits1/3 = in-ear.
+//! Status flags ([5]): bit5 = primary pod is left, bits1/3 = in-ear, and with the lid
+//! open bit4 = LEFT pod in the case, bit2 = RIGHT pod in the case, whichever pod sends
+//! the advert (measured on AirPods 4, 8 Nov 2026: 287 of 287 adverts agreed with the
+//! AirPods' own reports; the older reading "bit4 = one in case, bit2 = both" made the two
+//! pods' adverts disagree about which pod was out). bit6 is set by one of the pods only.
+//! Lid byte ([8]): bit6 = this pod is sitting in the case. Only such a pod knows the lid;
+//! a pod in a hand keeps repeating the last lid it heard.
 //! Sources: LibrePods Qt `linux/ble/blemanager.cpp`, `linux/battery.hpp`; Android
 //! `BLEManager.kt`.
 
@@ -101,9 +106,9 @@ pub fn decode_proximity(data: &[u8], decrypted: Option<&[u8; 16]>) -> Option<Ble
 
     let primary_left = status & 0x20 != 0;
     let this_in_case = status & 0x40 != 0;
-    let one_in_case = status & 0x10 != 0;
-    let both_in_case = status & 0x04 != 0;
-    let any_in_case = this_in_case || one_in_case || both_in_case;
+    let left_in_case = status & 0x10 != 0;
+    let right_in_case = status & 0x04 != 0;
+    let any_in_case = this_in_case || left_in_case || right_in_case;
 
     let mut r = BleBatteryReading {
         product_id: Some(product_id),
@@ -173,26 +178,15 @@ pub fn decode_proximity(data: &[u8], decrypted: Option<&[u8; 16]>) -> Option<Ble
     r.left_in_ear = Some(left_in_ear);
     r.right_in_ear = Some(right_in_ear);
 
-    // Which pod is in the case. Best effort: both-bit is exact; with one pod in the
-    // case, a pod that is in an ear cannot be the one in the case; otherwise assume
-    // the broadcasting (primary) pod.
-    if both_in_case {
-        r.left_in_case = true;
-        r.right_in_case = true;
-    } else if any_in_case {
-        let left_is_in_case = match (left_in_ear, right_in_ear) {
-            (true, false) => false,
-            (false, true) => true,
-            _ => primary_left,
-        };
-        r.left_in_case = left_is_in_case;
-        r.right_in_case = !left_is_in_case;
-    }
+    // Which pod is in the case (meaningful while the lid is open).
+    r.left_in_case = left_in_case;
+    r.right_in_case = right_in_case;
 
     // The case only reports while a pod is inside it.
     if any_in_case {
         r.case = case;
         r.lid_open = Some(lid & 0x08 == 0);
+        r.lid_trusted = lid & 0x40 != 0;
     }
     Some(r)
 }
@@ -828,7 +822,7 @@ mod tests {
 
     #[test]
     fn sentinels_are_invalid() {
-        let status = 0x20 | 0x04; // both in case
+        let status = 0x20 | 0x10 | 0x04; // both in case
         let mut plain = [0u8; 16];
         plain[1] = 0x7F; // 127 unknown
         plain[2] = 0xFF; // 255 unknown

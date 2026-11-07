@@ -6,6 +6,26 @@ All notable changes to Kase (formerly BazzitePods) are documented here. The form
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-08
+
+### Fixed
+- **The lid closing now plays on the case card.** Kase heard the lid shut 3.5 to 4 seconds
+  late, because it ignored the AirPods' Bluetooth adverts for 3 seconds after any other
+  report. When the AirPods dropped the PC before then, the card simply vanished. Kase now
+  takes the lid from the adverts of a pod sitting in the case, as soon as two agree (about
+  half a second). ([#75])
+- **No more pods jumping between left and right.** Kase read the wrong bits of the adverts
+  for which pod is in the case, so the two pods' adverts disagreed and the 3D pods
+  ping-ponged. Advert bit 4 is the left pod and bit 2 the right, whichever pod sends it.
+  ([#75])
+- **A link drop as the lid shuts plays the close.** If the AirPods drop the PC with both
+  pods in the case and no advert saying the lid is still open, the card shows the lid
+  closing and then folds, instead of disappearing. ([#75])
+
+### Changed
+- **The card waits for the lid.** With both pods back in the open case, the live card now
+  stays up to 15 seconds (was 6) so the lid closing plays on it. ([#75])
+
 ## [1.2.3] - 2026-11-06
 
 ### Added
@@ -847,6 +867,7 @@ desktops, built on [LibrePods](https://github.com/librepods-org/librepods).
 [#59]: https://github.com/DaBarkle/kase/pull/59
 [#67]: https://github.com/DaBarkle/kase/pull/67
 [#73]: https://github.com/DaBarkle/kase/pull/73
+[#75]: https://github.com/DaBarkle/kase/pull/75
 [#72]: https://github.com/DaBarkle/kase/pull/72
 [#70]: https://github.com/DaBarkle/kase/pull/70
 [#69]: https://github.com/DaBarkle/kase/pull/69

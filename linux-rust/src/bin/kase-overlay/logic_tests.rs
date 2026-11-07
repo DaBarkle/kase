@@ -1180,6 +1180,84 @@ mod live {
     }
 
     #[test]
+    fn with_both_pods_back_in_the_card_waits_for_the_lid() {
+        use Pod::{Out, Seated};
+        let t0 = Instant::now();
+        let mut c = live_controller(OverlayConfig::default());
+        state(&mut c, case(Lid::Open, Out, Out), t0);
+        state(&mut c, case(Lid::Open, Seated, Out), ms(t0, 2000));
+        let t1 = ms(t0, 4000);
+        state(&mut c, case(Lid::Open, Seated, Seated), t1);
+        // People close the lid 3 to 7 s later; the card is still there for it.
+        assert_eq!(c.target(ms(t1, 10_000)), Some(Content::Expanded));
+        let t2 = ms(t1, 11_000);
+        state(&mut c, case(Lid::Closed, Seated, Seated), t2);
+        assert_eq!(c.target(ms(t2, 1400)), Some(Content::Expanded));
+        assert_eq!(c.headline(ms(t2, 1400)), "Case closed");
+        assert_eq!(c.target(ms(t2, 1600)), None);
+        // Left open, it gives up after 15 s.
+        let t3 = ms(t2, 30_000);
+        state(&mut c, case(Lid::Open, Seated, Out), t3);
+        let t4 = ms(t3, 2000);
+        state(&mut c, case(Lid::Open, Seated, Seated), t4);
+        assert_eq!(c.target(ms(t4, 14_900)), Some(Content::Expanded));
+        assert_eq!(c.target(ms(t4, 15_100)), None);
+        // Opening the lid over both pods is not a put-away: the usual 6 s.
+        let t5 = ms(t4, 30_000);
+        state(&mut c, case(Lid::Closed, Seated, Seated), t5);
+        let t6 = ms(t5, 30_000);
+        state(&mut c, case(Lid::Open, Seated, Seated), t6);
+        assert_eq!(c.target(ms(t6, 5_900)), Some(Content::Expanded));
+        assert_eq!(c.target(ms(t6, 6_100)), None);
+    }
+
+    /// Kase's feed after the AirPods drop the link: not connected, the case state kept.
+    fn dropped(lid: Lid) -> OverlayState {
+        OverlayState {
+            connected: false,
+            in_case: false,
+            ..case(lid, Pod::Seated, Pod::Seated)
+        }
+    }
+
+    #[test]
+    fn a_link_drop_as_the_lid_shuts_plays_the_close() {
+        use Pod::Seated;
+        let t0 = Instant::now();
+        let mut c = live_controller(OverlayConfig::default());
+        state(&mut c, case(Lid::Open, Seated, Seated), t0);
+        let t1 = ms(t0, 5000);
+        state(&mut c, dropped(Lid::Closed), t1);
+        assert_eq!(c.target(t1), Some(Content::Expanded), "no vanishing");
+        let shown = c.display_state(ms(t1, 500)).unwrap();
+        assert!(shown.connected);
+        assert_eq!(shown.case_state.map(|s| s.lid), Some(Lid::Closed));
+        assert_eq!(c.headline(ms(t1, 500)), "Case closed");
+        assert_eq!(c.target(ms(t1, 1600)), None);
+        // No "Disconnected" goodbye after it either.
+        run(&mut c, ms(t1, 1600), 1000);
+        assert_eq!(c.target(ms(t1, 2600)), None);
+    }
+
+    #[test]
+    fn a_link_drop_with_the_lid_open_just_folds() {
+        use Pod::Seated;
+        let t0 = Instant::now();
+        let mut c = live_controller(OverlayConfig::default());
+        state(&mut c, case(Lid::Open, Seated, Seated), t0);
+        let t1 = ms(t0, 5000);
+        // The lid was seen open (the AirPods went to the phone): nothing to animate.
+        state(&mut c, dropped(Lid::Open), t1);
+        assert_eq!(c.target(t1), None);
+        // And a lid already shown shut doesn't play twice.
+        let mut c = live_controller(OverlayConfig::default());
+        state(&mut c, case(Lid::Open, Seated, Seated), t0);
+        state(&mut c, case(Lid::Closed, Seated, Seated), ms(t0, 3000));
+        state(&mut c, dropped(Lid::Closed), ms(t0, 7000));
+        assert_eq!(c.target(ms(t0, 7000)), None);
+    }
+
+    #[test]
     fn nothing_when_switched_off_over_a_game_or_out_of_play() {
         use Pod::{Out, Seated, Unknown};
         let t0 = Instant::now();

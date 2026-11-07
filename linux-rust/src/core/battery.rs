@@ -121,6 +121,9 @@ pub struct BleBatteryReading {
     pub left_in_case: bool,
     pub right_in_case: bool,
     pub lid_open: Option<bool>,
+    /// The advert came from a pod sitting in the case, so its lid bit is current (a pod
+    /// out of the case repeats the last lid it heard).
+    pub lid_trusted: bool,
     pub product_id: Option<u16>,
     pub left_in_ear: Option<bool>,
     pub right_in_ear: Option<bool>,

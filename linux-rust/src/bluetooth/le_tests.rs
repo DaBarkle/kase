@@ -50,30 +50,32 @@ fn level_bytes_at_the_edges() {
     assert_eq!(r.case, Some((100, true)));
 }
 
+/// Status and lid bytes as both pods of David's AirPods 4 sent them on 8 Nov 2026 (the
+/// two pods advertise at once, each with its own address and its own bit5/bit6).
 #[test]
 fn which_pod_is_in_the_case() {
     let d = block(50, 60, 70);
-    // Both in case.
-    let r = decode_proximity(&header(AIRPODS_4, 0x20 | 0x04, 0, 0, 0), Some(&d)).unwrap();
-    assert!(r.left_in_case && r.right_in_case);
-    assert_eq!(r.case, Some((70, false)));
+    let read = |status: u8, lid: u8| {
+        let r = decode_proximity(&header(AIRPODS_4, status, 0, 0, lid), Some(&d)).unwrap();
+        (r.left_in_case, r.right_in_case, r.lid_open, r.lid_trusted)
+    };
+    // Both in the open case: both pods agree.
+    assert_eq!(read(0x75, 0x51), (true, true, Some(true), true));
+    assert_eq!(read(0x15, 0x51), (true, true, Some(true), true));
+    // Right pod out in a hand: the left (in the case) and the right (in the hand) agree
+    // on which is which; only the one in the case knows the lid.
+    assert_eq!(read(0x71, 0x51), (true, false, Some(true), true));
+    assert_eq!(read(0x11, 0x11), (true, false, Some(true), false));
+    // Left pod out, right still in.
+    assert_eq!(read(0x05, 0x52), (false, true, Some(true), true));
+    // Both out: no case, no lid.
+    assert_eq!(read(0x01, 0x11), (false, false, None, false));
+    // Lid shut on both.
+    assert_eq!(read(0x15, 0x5A), (true, true, Some(false), true));
+    assert_eq!(read(0x75, 0x59), (true, true, Some(false), true));
 
-    // One in case (bit4), left primary not in case (bit6 clear), left in ear: so right
-    // is the one in the case. xor = 1 -> left in ear is bit1.
-    let r = decode_proximity(&header(AIRPODS_4, 0x20 | 0x10 | 0x02, 0, 0, 0), Some(&d)).unwrap();
-    assert_eq!(r.left_in_ear, Some(true));
-    assert_eq!(r.right_in_ear, Some(false));
-    assert!(!r.left_in_case && r.right_in_case);
-
-    // One in case, neither pod in an ear: assume the primary (right here) is in it.
-    let r = decode_proximity(&header(AIRPODS_4, 0x10, 0, 0, 0), Some(&d)).unwrap();
-    assert!(r.right_in_case && !r.left_in_case);
-
-    // Nothing in the case: no case level, no lid state.
     let r = decode_proximity(&header(AIRPODS_4, 0x20, 0, 0, 0), Some(&d)).unwrap();
-    assert!(!r.left_in_case && !r.right_in_case);
     assert_eq!(r.case, None);
-    assert_eq!(r.lid_open, None);
 }
 
 #[test]

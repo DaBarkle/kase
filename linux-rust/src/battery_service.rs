@@ -111,7 +111,7 @@ async fn run(hub: Hub, mut rx: mpsc::UnboundedReceiver<BatteryInput>, cache_path
                     }
                     BatteryInput::LinkLost(mac) => {
                         let case = cases.entry(mac).or_default();
-                        if case.on_link_lost() {
+                        if case.on_link_lost(now) {
                             publish_case(&hub, mac, case);
                         }
                         tracker_for(&mut trackers, &case_cache, mac).link_lost();
