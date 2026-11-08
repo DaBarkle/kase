@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.3.3" date="2026-11-08">
+      <description>
+        <p>Kase now notices when the AirPods output on the PC breaks after they come back from your iPhone, and rebuilds it instead of reporting it fixed.</p>
+      </description>
+    </release>
     <release version="1.3.2" date="2026-11-08">
       <description>
         <p>With both pods in your ears, the live case card plays the lid closing before it folds.</p>

@@ -354,9 +354,12 @@ impl<P: PulseApi, B: BluezApi> Guard<P, B> {
                 && let Some(card) = snap.card_for(&self.mac_str)
                 && let Some(sink) = snap.sink_for_card(card)
             {
+                // An output in PipeWire's error state has no stream playing on it, but
+                // it is broken, not quiet: keep waiting (it fails when the wait ends).
+                let errored = sink.state == SinkState::Unknown;
                 let playing =
                     sink.state == SinkState::Running && snap.uncorked_inputs_on(sink.index) > 0;
-                if !playing {
+                if !playing && !errored {
                     return true;
                 }
                 if let Ok(states) = self.bluez.transport_states(self.mac).await
