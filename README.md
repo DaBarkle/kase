@@ -131,7 +131,8 @@ still in your ear. On the first open of the day the closed case first turns a fu
 circle. The card comes back for every change while the case is in play and folds away
 6 seconds after the last one. With both pods back in, it waits up to 15 seconds for the
 lid, plays it closing within half a second of you shutting it, and folds 1.5 seconds later,
-even when the AirPods drop the PC as the lid shuts. Turn this off with
+even when the AirPods drop the PC as the lid shuts. With both pods in your ears it plays
+the lid closing as it folds (nothing reports that lid, but it's almost always shut by then). Turn this off with
 **Follow the case live** in the Island tab to get the earlier fixed clips instead.
 Everything plays at your monitor's refresh rate (just the last frame with **Reduce
 motion**), and the AirPods tab shows the case open or closed to match. Closing the lid

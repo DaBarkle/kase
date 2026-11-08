@@ -1,0 +1,68 @@
+{
+ "title": "Both pods into the ears: the lid closes as the card folds",
+ "config": {
+  "mode": "auto"
+ },
+ "start": "settled",
+ "state": {
+  "name": "AirPods 4",
+  "kind": "airpods4",
+  "connected": true,
+  "left": {
+   "level": 82,
+   "present": true,
+   "charging": true
+  },
+  "right": {
+   "level": 77,
+   "present": true,
+   "charging": true
+  },
+  "case": {
+   "level": 41,
+   "present": true
+  },
+  "in_case": true,
+  "case_state": {
+   "lid": "Open",
+   "left": "Seated",
+   "right": "Seated",
+   "source": "Aacp",
+   "seq": 0
+  }
+ },
+ "events": [
+  {
+   "t_ms": 0,
+   "state": {
+    "case_state": {
+     "lid": "Open",
+     "left": "Seated",
+     "right": "Out",
+     "source": "Aacp",
+     "seq": 0
+    },
+    "in_case": false,
+    "right": {
+     "charging": false
+    }
+   }
+  },
+  {
+   "t_ms": 1500,
+   "state": {
+    "case_state": {
+     "lid": "Open",
+     "left": "Out",
+     "right": "Out",
+     "source": "Aacp",
+     "seq": 0
+    },
+    "left": {
+     "charging": false
+    }
+   }
+  }
+ ],
+ "end_ms": 14000
+}

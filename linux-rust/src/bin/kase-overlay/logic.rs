@@ -629,6 +629,43 @@ impl Controller {
         }
     }
 
+    /// The live card is folding with both pods in the ears and the lid still open. Nothing
+    /// reports the lid then (only a pod in the case knows it), but it is almost always
+    /// shut by now, so the card plays it closing over the empty case first.
+    fn close_behind_the_ears(&mut self, now: Instant) {
+        use kase::overlay_protocol::{Lid, Pod};
+        let auto = self.config.mode == OverlayMode::Auto;
+        if !self.live || !auto || self.fullscreen || self.case_goodbye.is_some() {
+            return;
+        }
+        let Some((Content::Expanded, until)) = &self.pop else {
+            return;
+        };
+        if now < *until {
+            return;
+        }
+        let Some(state) = self.state.as_ref() else {
+            return;
+        };
+        let in_ear = |p: &Option<kase::overlay_protocol::ComponentState>| {
+            p.as_ref().is_some_and(|p| p.present && !p.out_of_ear)
+        };
+        let both_out_open = state
+            .case_state
+            .is_some_and(|c| c.lid == Lid::Open && c.left == Pod::Out && c.right == Pod::Out);
+        if !(state.connected && both_out_open && in_ear(&state.left) && in_ear(&state.right)) {
+            return;
+        }
+        log::info!("island: both pods in the ears; playing the lid closing as the card folds");
+        let until = now + CASE_CARD_LID_SHUT;
+        let mut shown = state.clone();
+        if let Some(c) = &mut shown.case_state {
+            c.lid = Lid::Closed;
+        }
+        self.case_goodbye = Some((shown, until));
+        crate::island::hold_art(Some(until));
+    }
+
     fn previewing(&self, now: Instant) -> bool {
         self.preview_until.is_some_and(|t| now < t)
     }
@@ -697,6 +734,9 @@ impl Controller {
         {
             return a.title(&state);
         }
+        if self.case_goodbye.as_ref().is_some_and(|(_, t)| now < *t) {
+            return "Case closed".into();
+        }
         if state.in_case {
             // Live, the card stays a moment to show the lid shutting: say so.
             let shut = self.live
@@ -737,6 +777,7 @@ impl Controller {
         if self.settler.take(now) {
             self.judge(now);
         }
+        self.close_behind_the_ears(now);
         if let Some((c, at)) = self.queued.clone()
             && now >= at
         {
@@ -833,6 +874,8 @@ impl Controller {
             self.settler.due(),
             self.queued.as_ref().map(|(_, t)| *t),
             self.news.as_ref().map(|(_, t)| *t),
+            // The close played on the way out (a link drop, or both pods in the ears).
+            self.case_goodbye.as_ref().map(|(_, t)| *t),
         ]
         .into_iter()
         .flatten()

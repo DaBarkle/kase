@@ -1257,6 +1257,49 @@ mod live {
         assert_eq!(c.target(ms(t0, 7000)), None);
     }
 
+    /// Both pods in the ears: nothing reports the lid any more, so the card plays it
+    /// closing over the empty case as it folds (David, 8 Nov 2026).
+    #[test]
+    fn with_both_pods_in_the_ears_the_card_closes_the_lid_as_it_folds() {
+        use Pod::{Out, Seated};
+        let t0 = Instant::now();
+        let mut c = live_controller(OverlayConfig::default());
+        state(&mut c, case(Lid::Open, Seated, Seated), t0);
+        state(&mut c, case(Lid::Open, Out, Out), ms(t0, 2000));
+        let (_, t1) = run(&mut c, ms(t0, 2000), 5900);
+        let shown = c.display_state(t1).unwrap();
+        assert_eq!(
+            shown.case_state.map(|s| s.lid),
+            Some(Lid::Open),
+            "still open"
+        );
+        let (_, t2) = run(&mut c, t1, 300);
+        assert_eq!(
+            c.target(t2),
+            Some(Content::Expanded),
+            "the close plays first"
+        );
+        let shown = c.display_state(t2).unwrap();
+        assert_eq!(shown.case_state.map(|s| s.lid), Some(Lid::Closed));
+        assert_eq!(c.headline(t2), "Case closed");
+        let (_, t3) = run(&mut c, t2, 1600);
+        assert_eq!(c.target(t3), None, "then it folds");
+        // Only once: it does not come back.
+        let (_, t4) = run(&mut c, t3, 3000);
+        assert_eq!(c.target(t4), None);
+
+        // A pod in a hand (out of the ear): the lid may well be open, so just fold.
+        let mut c = live_controller(OverlayConfig::default());
+        state(&mut c, case(Lid::Open, Seated, Seated), t0);
+        let mut s = case(Lid::Open, Out, Out);
+        if let Some(r) = &mut s.right {
+            r.out_of_ear = true;
+        }
+        state(&mut c, s, ms(t0, 2000));
+        let (_, t1) = run(&mut c, ms(t0, 2000), 6300);
+        assert_eq!(c.target(t1), None);
+    }
+
     #[test]
     fn nothing_when_switched_off_over_a_game_or_out_of_play() {
         use Pod::{Out, Seated, Unknown};

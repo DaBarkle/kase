@@ -97,6 +97,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.3.2" date="2026-11-08">
+      <description>
+        <p>With both pods in your ears, the live case card plays the lid closing before it folds.</p>
+      </description>
+    </release>
     <release version="1.3.1" date="2026-11-08">
       <description>
         <p>The live case card shows the case, the pods and the lid closing even when the AirPods send their status only through Bluetooth adverts.</p>
