@@ -95,6 +95,9 @@ impl LiveClip {
             v.push(LiveClip::LidOpen(s));
             v.push(LiveClip::LidClose(s));
         }
+        // The empty case only closes on screen (when both pods are in the ears and the
+        // card folds); it opens already showing the pods hovering beside it.
+        v.push(LiveClip::LidClose(Seated::None));
         for s in [Seated::Both, Seated::L, Seated::R, Seated::None] {
             v.push(LiveClip::Case(s));
         }
@@ -436,20 +439,15 @@ impl<F: Fn(LiveClip) -> usize> CasePose<F> {
             self.last_start = now;
         }
         if self.target.lid == Lid::Closed && !pods_moving && (0..2).all(|i| self.pod_settled(i)) {
-            match self.seated_now() {
-                Seated::None => self.lid = LidShow::Closed,
-                s => {
-                    self.lid = LidShow::Moving {
-                        m: Move {
-                            clip: LiveClip::LidClose(s),
-                            from: 0,
-                            reverse: false,
-                            start: now,
-                        },
-                        opening: false,
-                    };
-                }
-            }
+            self.lid = LidShow::Moving {
+                m: Move {
+                    clip: LiveClip::LidClose(self.seated_now()),
+                    from: 0,
+                    reverse: false,
+                    start: now,
+                },
+                opening: false,
+            };
         }
     }
 

@@ -196,6 +196,10 @@ for _s in ("both", "L", "R"):
     CLIPS[f"lid-open-{_s}"] = (lid_open(_s), lid_open_length)
     CLIPS[f"lid-close-{_s}"] = (lid_close(_s), lid_close_length)
     LAYER[f"lid-open-{_s}"] = LAYER[f"lid-close-{_s}"] = "case"
+# The lid shutting over an empty case: played when both pods are in the ears and the card
+# folds (nothing reports that lid; it is the likely end of the story).
+CLIPS["lid-close-none"] = (lid_close("none"), lid_close_length)
+LAYER["lid-close-none"] = "case"
 CLIPS["spin-lid-open"] = (spin_lid_open, spin_lid_open_length)
 LAYER["spin-lid-open"] = "case"
 for _s in ("both", "L", "R", "none"):
