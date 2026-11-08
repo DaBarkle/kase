@@ -34,6 +34,10 @@ struct World {
     refuses: Option<String>,
     /// Suspending the output doesn't bring it back (only a full rebuild does).
     suspend_doesnt_help: bool,
+    /// The bluez sink is in PipeWire's error state (shown as an invalid state).
+    errored: bool,
+    /// A toggle through "off" doesn't clear the error state.
+    errored_sticky: bool,
 }
 
 impl World {
@@ -98,7 +102,9 @@ impl World {
         let want = matches!(active.as_deref(), Some(p) if p != "off");
         let have = self.snap.sinks.iter().any(|s| s.index == BT_SINK);
         if want {
-            let state = if self.playing {
+            let state = if self.errored {
+                SinkState::Unknown
+            } else if self.playing {
                 SinkState::Running
             } else {
                 SinkState::Idle
@@ -171,6 +177,9 @@ impl PulseApi for FakePulse {
         card.active_profile = Some(profile.to_string());
         if profile == "off" {
             w.toggled_off = true;
+            if !w.errored_sticky {
+                w.errored = false;
+            }
         } else if w.refuses.is_some() {
             let state = if w.refuses.as_deref() == Some(profile) && w.toggled_off {
                 "idle"
@@ -481,6 +490,61 @@ async fn stall_recovered_by_toggle_stops_ladder() {
             .iter()
             .any(|h| matches!(h, AudioHealth::Recovering { step: 2 | 3 }))
     );
+}
+
+/// The output went into PipeWire's error state after a take-back (the AirPods refused
+/// to start the stream) and the apps moved off it, so nothing plays on it. That is a
+/// broken output, not a quiet one: it gets rebuilt.
+fn errored_world() -> World {
+    let mut w = World::new();
+    w.add_card("a2dp-sink-aac");
+    w.transports = vec!["idle".into()];
+    w.errored = true;
+    w.sync_sink();
+    w
+}
+
+#[tokio::test]
+async fn errored_output_without_streams_is_rebuilt() {
+    let (world, handle) = start(errored_world(), fast());
+    handle.link_up();
+    wait_health(&handle, "recovering", |h| {
+        matches!(h, AudioHealth::Recovering { .. })
+    })
+    .await;
+    wait_health(&handle, "ready again", |h| ready_with(h, "a2dp-sink-aac")).await;
+    settle(200).await;
+    let w = lock(&world);
+    assert_eq!(w.count("profile:off"), 1, "log: {:?}", w.log);
+    assert!(!w.errored);
+    assert_eq!(w.count("disconnect"), 0);
+}
+
+#[tokio::test]
+async fn errored_output_is_not_reported_as_recovered() {
+    // The toggle brings the output back still in the error state: step 1 must not
+    // count as a recovery (it used to, as nothing was playing on the broken output).
+    let mut w = errored_world();
+    w.errored_sticky = true;
+    let (world, handle) = start(w, fast());
+    let seen = record(&handle);
+    handle.link_up();
+    wait_health(&handle, "failed", |h| {
+        matches!(h, AudioHealth::Failed { .. })
+    })
+    .await;
+    let steps: Vec<u8> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|h| match h {
+            AudioHealth::Recovering { step } => Some(*step),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(steps, vec![1, 2, 3]);
+    let active = lock(&world).active().unwrap_or_default();
+    assert!(active.starts_with("a2dp"), "card left on {active}");
 }
 
 #[tokio::test]

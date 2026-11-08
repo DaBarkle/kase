@@ -69,26 +69,41 @@ impl<P: PulseApi, B: BluezApi> Guard<P, B> {
             self.next_monitor = Some(Instant::now() + self.cfg.poll);
             return;
         }
-        if self.away
-            || !is_a2dp(&active)
-            || sink.state != SinkState::Running
-            || snap.uncorked_inputs_on(sink.index) == 0
+        // PipeWire's error state (the transport could not be acquired): the output is
+        // gone for good until it is rebuilt, and apps moved off it or stuck on it hear
+        // nothing. Treat it as a stall whether or not a stream plays on it.
+        let errored = !self.away && is_a2dp(&active) && sink.state == SinkState::Unknown;
+        if !errored
+            && (self.away
+                || !is_a2dp(&active)
+                || sink.state != SinkState::Running
+                || snap.uncorked_inputs_on(sink.index) == 0)
         {
             self.stall_since = None;
             self.set_health(healthy);
             return;
         }
-        let states = match self.bluez.transport_states(self.mac).await {
-            Ok(s) => s,
-            Err(e) => {
-                debug!("[audio {}] transport query failed: {}", self.mac_str, e);
-                return;
+        let states = if errored {
+            vec!["error".to_string()]
+        } else {
+            match self.bluez.transport_states(self.mac).await {
+                Ok(s) => s,
+                Err(e) => {
+                    debug!("[audio {}] transport query failed: {}", self.mac_str, e);
+                    return;
+                }
             }
         };
         if states.iter().any(|s| s == "active") {
             self.stall_since = None;
             self.set_health(healthy);
             return;
+        }
+        if errored && self.stall_since.is_none() {
+            warn!(
+                "[audio {}] the AirPods output is in an error state (PipeWire could not start the Bluetooth stream)",
+                self.mac_str
+            );
         }
         let since = *self.stall_since.get_or_insert(now);
         debug!(

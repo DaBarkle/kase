@@ -45,6 +45,9 @@ pub enum SinkState {
     Running,
     Idle,
     Suspended,
+    /// PulseAudio's invalid state. PipeWire reports an output in its error state this
+    /// way (for example after `Acquire` of the Bluetooth transport failed): it plays
+    /// nothing and never recovers by itself.
     #[default]
     Unknown,
 }
